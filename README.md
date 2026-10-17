@@ -95,6 +95,7 @@ AI options include:
 
 ```text
 GRAVEL/
+├── LICENSE          # Custom noncommercial attribution terms
 ├── main.py          # Application and editor implementation
 ├── README.md        # Project guide
 └── images/          # File-type icons used in the project explorer
@@ -104,6 +105,9 @@ GRAVEL/
     ├── javascript.png
     ├── json.png
     └── python.png
+└── __pycache__/    # Makes sure that everything is in the right folders
+    ├── main.cpython-315.pyc
+    └── python.cpython-315.pyc
 ```
 
 Keep the `images` folder beside `main.py`; the application loads its file icons from there at startup.
