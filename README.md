@@ -1,5 +1,5 @@
 # 🪨 GRAVEL
-
+windows executable file (exe) still dosent work
 ### **G**eneral **R**untime for **A**gile **V**isual **E**dition & **L**inking
 
 > A colorful, lightweight desktop coding workspace for editing projects, running code, and getting optional AI help.
