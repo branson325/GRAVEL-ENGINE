@@ -35,6 +35,8 @@ No Python packages need to be installed for the editor itself.
 2. Open the extracted folder's `dist` folder.
 3. Open the `main` folder.
 4. Double-click `main.exe` to launch GRAVEL.
+5. Microsoft Defender will open and stop the file from opening because it is no signed
+6. Click `More info` then click `Run anyway`
 Do not move any files (it will not work if you do)
 
 ### Start it [Powershell]
