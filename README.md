@@ -20,6 +20,15 @@ GRAVEL is a small editor built with Python's standard-library **Tkinter** GUI to
 - **Optional AI assistant** — chat about the open file, request a code completion, explain the last run, or ask AI to edit the open file. AI edits are checked for valid Python or JSON where applicable, can be undone with `Ctrl+Z`, and are autosaved.
 - **Autosave** — changes to a named file are saved after a short pause. Unsaved changes are also saved before switching files or closing the app.
 
+### Open the Windows executable
+
+1. Open the GRAVEL ZIP file.
+2. Extract the ZIP file.
+3. Open the extracted folder's `dist` folder.
+4. Open the `main` folder.
+5. Double-click `main.exe` to launch GRAVEL.
+Do not move any files (it will not work if you do)
+
 ## 🚀 Run GRAVEL
 
 ### Requirements
@@ -47,14 +56,7 @@ On macOS or Linux, use `python3 main.py` if `python` does not point to Python 3.
 
 The welcome screen has a **Select Folder** button to open a project. You can also start with **File → Open File...** or create a file with **File → New File**.
 
-### Open the Windows executable
 
-1. Open the GRAVEL ZIP file.
-2. Extract the ZIP file.
-3. Open the extracted folder's `dist` folder.
-4. Open the `main` folder.
-5. Double-click `main.exe` to launch GRAVEL.
-Do not move any files (it will not work if you do)
 
 ## ▶️ What “Run” does
 
