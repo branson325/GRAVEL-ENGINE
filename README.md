@@ -14,7 +14,7 @@ GRAVEL is a small editor built with Python's standard-library **Tkinter** GUI to
 
 - **Project workspace** — open a folder, browse its files, and create, rename, or delete files and folders from the project tree.
 - **Editor basics** — open and save files, create new files, undo edits, and choose between 2-, 4-, or 8-space tabs.
-- **Python syntax highlighting** — highlights Python keywords, strings, comments, numbers, constants, and operators; choose a **Light**, **Dark**, or **Forest** editor theme.
+- **Python syntax highlighting and themes** — highlights Python keywords, strings, comments, numbers, constants, and operators; choose a **Light**, **Dark**, or **Forest** application theme. Dark mode uses dark surfaces throughout the workspace with red accents.
 - **Run and preview** — run supported code or preview web content, with output and errors shown in the built-in terminal.
 - **Interactive terminal input** — send input to a running program, then stop it when needed.
 - **Optional AI assistant** — chat about the open file, request a code completion, explain the last run, or ask AI to edit the open file. AI edits are checked for valid Python or JSON where applicable, can be undone with `Ctrl+Z`, and are autosaved.
@@ -47,6 +47,15 @@ On macOS or Linux, use `python3 main.py` if `python` does not point to Python 3.
 
 The welcome screen has a **Select Folder** button to open a project. You can also start with **File → Open File...** or create a file with **File → New File**.
 
+### Open the Windows executable
+
+1. Open the GRAVEL ZIP file.
+2. Extract the ZIP file.
+3. Open the extracted folder's `dist` folder.
+4. Open the `main` folder.
+5. Double-click `main.exe` to launch GRAVEL.
+Do not move any files (it will not work if you do)
+
 ## ▶️ What “Run” does
 
 Save the file, then click **Run ▶** or press **F5**. The action depends on the current file type:
@@ -61,6 +70,10 @@ Save the file, then click **Run ▶** or press **F5**. The action depends on the
 | `.json` | Validates the JSON and prints a readable, indented version in the terminal. | — |
 
 JavaScript and Java are optional: only install a runtime if you want to run those file types. **Stop ■** terminates a running script; programs that request input can receive it through the terminal's input box.
+
+## 📜 License
+
+GRAVEL is available under the custom noncommercial attribution terms in [LICENSE](./LICENSE). You may use, modify, and share it for noncommercial purposes, but any use or posting must include the credit **"Created by QuantumNight101 | Branson325"**. Commercial use requires prior written permission from the copyright holder.
 
 ## 🤖 Optional AI assistant
 
@@ -95,9 +108,9 @@ AI options include:
 
 ```text
 GRAVEL/
-├── LICENSE          # Custom noncommercial attribution terms
 ├── main.py          # Application and editor implementation
 ├── README.md        # Project guide
+├── LICENSE          # Custom noncommercial attribution terms
 └── images/          # File-type icons used in the project explorer
     ├── css.png
     ├── html.png
@@ -105,9 +118,6 @@ GRAVEL/
     ├── javascript.png
     ├── json.png
     └── python.png
-└── __pycache__/    # Makes sure that everything is in the right folders
-    ├── main.cpython-315.pyc
-    └── python.cpython-315.pyc
 ```
 
 Keep the `images` folder beside `main.py`; the application loads its file icons from there at startup.
