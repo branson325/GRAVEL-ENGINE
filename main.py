@@ -50,16 +50,25 @@ class PythonEditor:
             "background": "#ffffff", "foreground": "#202124", "selection": "#cde8ff",
             "keyword": "#7b2cbf", "constant": "#b42318", "string": "#18794e",
             "comment": "#777f8b", "number": "#a04b00", "operator": "#405a78",
+            "panel": "#f3f4f6", "field": "#ffffff", "surface": "#f3f4f6",
+            "border": "#c9cdd3", "muted": "#68707c", "accent": "#c9363e",
+            "accent_hover": "#ad2931", "accent_foreground": "#ffffff",
         },
         "Dark": {
-            "background": "#1e1f22", "foreground": "#d7dae0", "selection": "#3e5268",
+            "background": "#17181b", "foreground": "#e2e4e9", "selection": "#702b31",
             "keyword": "#cf8ef4", "constant": "#ff7b72", "string": "#a5d6a7",
             "comment": "#89929e", "number": "#f2b880", "operator": "#91b9e8",
+            "panel": "#1e2024", "field": "#191a1e", "surface": "#292b30",
+            "border": "#393c43", "muted": "#a0a5af", "accent": "#e0444d",
+            "accent_hover": "#f0525b", "accent_foreground": "#ffffff",
         },
         "Forest": {
             "background": "#f1f5ef", "foreground": "#27352a", "selection": "#c9dfc7",
             "keyword": "#7651a6", "constant": "#b64f39", "string": "#28734d",
             "comment": "#748276", "number": "#a46526", "operator": "#386778",
+            "panel": "#e8eee5", "field": "#ffffff", "surface": "#e8eee5",
+            "border": "#c4d0c1", "muted": "#667469", "accent": "#4b7657",
+            "accent_hover": "#3c6548", "accent_foreground": "#ffffff",
         },
     }
     SYNTAX_TAGS = ("keyword", "constant", "string", "comment", "number", "operator")
@@ -112,8 +121,8 @@ class PythonEditor:
         self.root.after(60, self._read_process_output)
 
     def _create_menu(self) -> None:
-        menu = tk.Menu(self.root)
-        file_menu = tk.Menu(menu, tearoff=False)
+        self.menu = tk.Menu(self.root)
+        file_menu = tk.Menu(self.menu, tearoff=False)
         file_menu.add_command(label="New File", accelerator="Ctrl+N", command=self.new_file)
         file_menu.add_command(label="Open File...", accelerator="Ctrl+O", command=self.open_file)
         file_menu.add_command(
@@ -124,14 +133,14 @@ class PythonEditor:
         file_menu.add_command(label="Save As...", command=self.save_file_as)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self._on_close)
-        menu.add_cascade(label="File", menu=file_menu)
+        self.menu.add_cascade(label="File", menu=file_menu)
 
-        run_menu = tk.Menu(menu, tearoff=False)
+        run_menu = tk.Menu(self.menu, tearoff=False)
         run_menu.add_command(label="Run Current File", accelerator="F5", command=self.run_file)
         run_menu.add_command(label="Stop", command=self.stop_file)
-        menu.add_cascade(label="Run", menu=run_menu)
+        self.menu.add_cascade(label="Run", menu=run_menu)
 
-        view_menu = tk.Menu(menu, tearoff=False)
+        view_menu = tk.Menu(self.menu, tearoff=False)
         theme_menu = tk.Menu(view_menu, tearoff=False)
         for theme_name in self.THEMES:
             theme_menu.add_radiobutton(
@@ -141,9 +150,9 @@ class PythonEditor:
                 command=lambda: self._set_theme(self.theme_var.get()),
             )
         view_menu.add_cascade(label="Theme", menu=theme_menu)
-        menu.add_cascade(label="View", menu=view_menu)
+        self.menu.add_cascade(label="View", menu=view_menu)
 
-        settings_menu = tk.Menu(menu, tearoff=False)
+        settings_menu = tk.Menu(self.menu, tearoff=False)
         tab_size_menu = tk.Menu(settings_menu, tearoff=False)
         for tab_size in (2, 4, 8):
             tab_size_menu.add_radiobutton(
@@ -153,8 +162,8 @@ class PythonEditor:
                 command=self._apply_tab_size,
             )
         settings_menu.add_cascade(label="Tab Size", menu=tab_size_menu)
-        menu.add_cascade(label="Settings", menu=settings_menu)
-        self.root.config(menu=menu)
+        self.menu.add_cascade(label="Settings", menu=settings_menu)
+        self.root.config(menu=self.menu)
 
     def _create_widgets(self) -> None:
         self.welcome = ttk.Frame(self.root)
@@ -169,9 +178,11 @@ class PythonEditor:
             text="| General Runtime for Agile Visual Edition & Linking |",
             font=("Segoe UI", 11),
         ).pack(pady=(0, 20))
-        ttk.Button(
+        self.welcome_select_button = ttk.Button(
             welcome_content, text="Select Folder", command=self.open_folder
-        ).pack()
+        )
+        self.welcome_select_button.configure(style="Accent.TButton")
+        self.welcome_select_button.pack()
 
         self.workspace = ttk.Frame(self.root)
         toolbar = ttk.Frame(self.workspace, padding=(8, 6))
@@ -179,7 +190,9 @@ class PythonEditor:
         ttk.Button(toolbar, text="Open File", command=self.open_file).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(toolbar, text="Open Folder", command=self.open_folder).pack(side=tk.LEFT, padx=5)
         ttk.Button(toolbar, text="Save", command=self.save_file).pack(side=tk.LEFT, padx=5)
-        self.run_button = ttk.Button(toolbar, text="Run ▶", command=self.run_file)
+        self.run_button = ttk.Button(
+            toolbar, text="Run ▶", command=self.run_file, style="Accent.TButton"
+        )
         self.run_button.pack(side=tk.LEFT, padx=(12, 5))
         self.stop_button = ttk.Button(toolbar, text="Stop ■", command=self.stop_file, state=tk.DISABLED)
         self.stop_button.pack(side=tk.LEFT, padx=5)
@@ -351,7 +364,7 @@ class PythonEditor:
         self.ai_prompt_entry.grid(row=1, column=0, sticky="ew")
         self.ai_prompt_entry.bind("<Return>", self._submit_ai_prompt)
         self.ai_send_button = ttk.Button(
-            ai_prompt_row, text="Send", command=self._submit_ai_prompt
+            ai_prompt_row, text="Send", command=self._submit_ai_prompt, style="Accent.TButton"
         )
         self.ai_send_button.grid(
             row=1, column=1, padx=(5, 0)
@@ -439,13 +452,178 @@ class PythonEditor:
     def _set_theme(self, theme_name: str) -> None:
         palette = self.THEMES[theme_name]
         self.theme_var.set(theme_name)
+        self.root.configure(background=palette["background"])
+
+        style = ttk.Style(self.root)
+        if style.theme_use() != "clam":
+            style.theme_use("clam")
+        style.configure(
+            ".",
+            background=palette["background"],
+            foreground=palette["foreground"],
+            fieldbackground=palette["field"],
+            bordercolor=palette["border"],
+            focuscolor=palette["accent"],
+            lightcolor=palette["surface"],
+            darkcolor=palette["border"],
+            troughcolor=palette["field"],
+            insertcolor=palette["foreground"],
+        )
+        style.configure("TFrame", background=palette["background"])
+        style.configure(
+            "TLabel",
+            background=palette["background"],
+            foreground=palette["foreground"],
+        )
+        style.configure(
+            "TButton",
+            background=palette["surface"],
+            foreground=palette["foreground"],
+            bordercolor=palette["border"],
+            focusthickness=1,
+            padding=(8, 4),
+        )
+        style.map(
+            "TButton",
+            background=[
+                ("disabled", palette["background"]),
+                ("pressed", palette["accent"]),
+                ("active", palette["accent"]),
+            ],
+            foreground=[
+                ("disabled", palette["muted"]),
+                ("pressed", palette["accent_foreground"]),
+                ("active", palette["accent_foreground"]),
+            ],
+        )
+        style.configure(
+            "Accent.TButton",
+            background=palette["accent"],
+            foreground=palette["accent_foreground"],
+            bordercolor=palette["accent"],
+        )
+        style.map(
+            "Accent.TButton",
+            background=[
+                ("disabled", palette["surface"]),
+                ("pressed", palette["accent_hover"]),
+                ("active", palette["accent_hover"]),
+            ],
+            foreground=[
+                ("disabled", palette["muted"]),
+                ("pressed", palette["accent_foreground"]),
+                ("active", palette["accent_foreground"]),
+            ],
+        )
+        style.configure(
+            "TEntry",
+            fieldbackground=palette["field"],
+            foreground=palette["foreground"],
+            bordercolor=palette["border"],
+            insertcolor=palette["foreground"],
+        )
+        style.map(
+            "TEntry",
+            fieldbackground=[("disabled", palette["panel"]), ("readonly", palette["field"])],
+            foreground=[("disabled", palette["muted"])],
+            bordercolor=[("focus", palette["accent"])],
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=palette["field"],
+            background=palette["surface"],
+            foreground=palette["foreground"],
+            arrowcolor=palette["foreground"],
+            bordercolor=palette["border"],
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", palette["field"]), ("disabled", palette["panel"])],
+            foreground=[("disabled", palette["muted"])],
+            selectbackground=[("readonly", palette["selection"])],
+            selectforeground=[("readonly", palette["foreground"])],
+            bordercolor=[("focus", palette["accent"])],
+        )
+        style.configure(
+            "TCheckbutton",
+            background=palette["background"],
+            foreground=palette["foreground"],
+            indicatorcolor=palette["field"],
+        )
+        style.map(
+            "TCheckbutton",
+            background=[("active", palette["background"])],
+            foreground=[("disabled", palette["muted"])],
+            indicatorcolor=[
+                ("selected", palette["accent"]),
+                ("active", palette["surface"]),
+            ],
+        )
+        style.configure(
+            "Treeview",
+            background=palette["field"],
+            fieldbackground=palette["field"],
+            foreground=palette["foreground"],
+            bordercolor=palette["border"],
+            rowheight=24,
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", palette["accent"])],
+            foreground=[("selected", palette["accent_foreground"])],
+        )
+        style.configure(
+            "Treeview.Heading",
+            background=palette["surface"],
+            foreground=palette["foreground"],
+            bordercolor=palette["border"],
+        )
+        style.map(
+            "Treeview.Heading",
+            background=[("active", palette["accent"])],
+            foreground=[("active", palette["accent_foreground"])],
+        )
+        style.configure(
+            "TScrollbar",
+            background=palette["surface"],
+            troughcolor=palette["background"],
+            bordercolor=palette["background"],
+            arrowcolor=palette["foreground"],
+        )
+        style.map(
+            "TScrollbar",
+            background=[("active", palette["accent"])],
+        )
+        style.configure("TPanedwindow", background=palette["border"])
+        style.configure("Sash", background=palette["border"])
+
+        for menu in (self.menu, self.tree_menu):
+            menu.configure(
+                background=palette["surface"],
+                foreground=palette["foreground"],
+                activebackground=palette["accent"],
+                activeforeground=palette["accent_foreground"],
+                disabledforeground=palette["muted"],
+                selectcolor=palette["accent"],
+                borderwidth=1,
+            )
         for widget in (self.editor, self.output, self.ai_chat):
             widget.configure(
-                background=palette["background"],
+                background=palette["field"],
                 foreground=palette["foreground"],
                 insertbackground=palette["foreground"],
-                selectbackground=palette["selection"],
+                selectbackground=palette["accent"],
+                selectforeground=palette["accent_foreground"],
+                highlightbackground=palette["border"],
+                highlightcolor=palette["accent"],
             )
+        self.editor.configure(background=palette["background"], selectbackground=palette["selection"])
+        self.root.option_add("*TCombobox*Listbox.background", palette["field"])
+        self.root.option_add("*TCombobox*Listbox.foreground", palette["foreground"])
+        self.root.option_add("*TCombobox*Listbox.selectBackground", palette["accent"])
+        self.root.option_add(
+            "*TCombobox*Listbox.selectForeground", palette["accent_foreground"]
+        )
         for tag in self.SYNTAX_TAGS:
             self.editor.tag_configure(f"syntax_{tag}", foreground=palette[tag])
         self._highlight_syntax()
