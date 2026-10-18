@@ -31,11 +31,10 @@ No Python packages need to be installed for the editor itself.
 
 ### Start it [windows executable (exe)]
 
-1. Open the GRAVEL ZIP file.
-2. Extract the ZIP file.
-3. Open the extracted folder's `dist` folder.
-4. Open the `main` folder.
-5. Double-click `main.exe` to launch GRAVEL.
+1. Open the CRAVEL ENGINE INSTALL folder.
+2. Open the extracted folder's `dist` folder.
+3. Open the `main` folder.
+4. Double-click `main.exe` to launch GRAVEL.
 Do not move any files (it will not work if you do)
 
 ### Start it [Powershell]
