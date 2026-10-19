@@ -1,4 +1,5 @@
-# |:---:| GRAVEL
+<img src="images/logo.png" alt="gravel logo icon" width="48">
+ # GRAVEL
 windows executable file (exe) still dosent work
 ### **G**eneral **R**untime for **A**gile **V**isual **E**dition & **L**inking
 
@@ -137,7 +138,6 @@ Keep the `images` folder beside `main.py`; the application loads its file icons 
 ## 🖼️ Included file icons
 
 <p>
-  <img src="inages/logo.png" alt="gravel logo icon" width="48">
   <img src="images/python.png" alt="Python file icon" width="48">
   <img src="images/html.png" alt="HTML file icon" width="48">
   <img src="images/css.png" alt="CSS file icon" width="48">
