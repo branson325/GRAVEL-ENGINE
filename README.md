@@ -1,5 +1,5 @@
 <p>
-    <img src="images/logo.png" alt="gravel logo icon" width="48">
+    <img src="images/logo.png" alt="gravel logo icon" width="400">
 <p>
 
 # GRAVEL
