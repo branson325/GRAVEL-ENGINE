@@ -1,8 +1,4 @@
-<p>
-    <img src="images/logo.png" alt="gravel logo icon" width="400">
-<p>
-
-# GRAVEL
+# 🪨 GRAVEL
 windows executable file (exe) still dosent work
 ### **G**eneral **R**untime for **A**gile **V**isual **E**dition & **L**inking
 
@@ -148,3 +144,6 @@ Keep the `images` folder beside `main.py`; the application loads its file icons 
   <img src="images/java.png" alt="Java file icon" width="48">
   <img src="images/json.png" alt="JSON file icon" width="48">
 </p>
+<p>
+    <img src="images/logo.png" alt="gravel logo icon" width="800">
+<p>
