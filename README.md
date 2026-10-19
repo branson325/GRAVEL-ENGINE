@@ -1,4 +1,6 @@
-<img src="images/logo.png" alt="gravel logo icon" width="48">
+<p>
+    <img src="images/logo.png" alt="gravel logo icon" width="48">
+<p>
 # GRAVEL
 windows executable file (exe) still dosent work
 ### **G**eneral **R**untime for **A**gile **V**isual **E**dition & **L**inking
