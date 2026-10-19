@@ -72,10 +72,18 @@ class PythonEditor:
         },
     }
     SYNTAX_TAGS = ("keyword", "constant", "string", "comment", "number", "operator")
+    CUSTOMIZABLE_COLORS = (
+        ("background", "Background"),
+        ("keyword", "Keyword"),
+        ("comment", "Comment"),
+        ("panel", "Panel"),
+        ("border", "Border"),
+        ("accent_hover", "Accent Hover"),
+    )
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("🔐GRAVEL")
+        self.root.title("🔐GRAVEL SECURE CODE EDITOR🔐")
         self.root.geometry("1100x720")
         self.root.minsize(720, 480)
 
@@ -88,7 +96,9 @@ class PythonEditor:
         self._autosave_after_id: str | None = None
         self._syntax_after_id: str | None = None
         self._closing = False
-        self.theme_var = tk.StringVar(value="Light")
+        self.settings_path = Path.home() / ".gravel" / "settings.json"
+        initial_theme, self.custom_theme_colors = self._load_settings()
+        self.theme_var = tk.StringVar(value=initial_theme)
         self.tab_size_var = tk.IntVar(value=4)
         self.ai_apply_edits_var = tk.BooleanVar(value=True)
         images_folder = Path(__file__).resolve().parent / "images"
@@ -98,6 +108,9 @@ class PythonEditor:
             ).subsample(2, 2)
             for icon_name in set(self.FILE_ICONS.values())
         }
+        welcome_logo = tk.PhotoImage(file=str(images_folder / "logo.png"))
+        self.welcome_logo_large = welcome_logo.subsample(3, 3)
+        self.welcome_logo_small = welcome_logo.subsample(4, 4)
         self.ai_model_var = tk.StringVar(value="gemma4:cloud")
         self.ai_status = tk.StringVar(value="Local Ollama model not checked")
         self.ai_history: list[tuple[str, str]] = []
@@ -141,14 +154,7 @@ class PythonEditor:
         self.menu.add_cascade(label="Run", menu=run_menu)
 
         view_menu = tk.Menu(self.menu, tearoff=False)
-        theme_menu = tk.Menu(view_menu, tearoff=False)
-        for theme_name in self.THEMES:
-            theme_menu.add_radiobutton(
-                label=theme_name,
-                variable=self.theme_var,
-                value=theme_name,
-                command=lambda: self._set_theme(self.theme_var.get()),
-            )
+        theme_menu = self._create_theme_menu(view_menu)
         view_menu.add_cascade(label="Theme", menu=theme_menu)
         self.menu.add_cascade(label="View", menu=view_menu)
 
@@ -162,27 +168,271 @@ class PythonEditor:
                 command=self._apply_tab_size,
             )
         settings_menu.add_cascade(label="Tab Size", menu=tab_size_menu)
+        theme_menu.add_separator()
+        theme_menu.add_command(
+            label="Customize Theme Colors...",
+            command=self._customize_theme_colors,
+        )
+        theme_menu.add_command(
+            label="Reset Colors to Light",
+            command=self._reset_colors_to_light,
+        )
         self.menu.add_cascade(label="Settings", menu=settings_menu)
         self.root.config(menu=self.menu)
 
+    def _create_theme_menu(self, parent: tk.Menu) -> tk.Menu:
+        theme_menu = tk.Menu(parent, tearoff=False)
+        for theme_name in self.THEMES:
+            theme_menu.add_radiobutton(
+                label=theme_name,
+                variable=self.theme_var,
+                value=theme_name,
+                command=self._select_theme,
+            )
+        return theme_menu
+
+    def _load_settings(self) -> tuple[str, dict[str, dict[str, str]]]:
+        try:
+            with self.settings_path.open(encoding="utf-8") as settings_file:
+                settings = json.load(settings_file)
+        except FileNotFoundError:
+            return "Light", {}
+        except (json.JSONDecodeError, UnicodeError) as error:
+            messagebox.showwarning(
+                "Settings", f"Could not read settings file:\n{error}", parent=self.root
+            )
+            return "Light", {}
+        except OSError as error:
+            messagebox.showwarning(
+                "Settings", f"Could not read settings file:\n{error}", parent=self.root
+            )
+            return "Light", {}
+
+        if not isinstance(settings, dict):
+            messagebox.showwarning(
+                "Settings",
+                "Settings file has an invalid format. Using default settings.",
+                parent=self.root,
+            )
+            return "Light", {}
+
+        theme = settings.get("theme")
+        if not isinstance(theme, str) or theme not in self.THEMES:
+            if "theme" in settings:
+                messagebox.showwarning(
+                    "Settings",
+                    "Saved theme is invalid. Using the Light theme.",
+                    parent=self.root,
+                )
+            theme = "Light"
+
+        custom_colors: dict[str, dict[str, str]] = {}
+        saved_colors = settings.get("custom_colors", {})
+        if isinstance(saved_colors, dict):
+            for theme_name, colors in saved_colors.items():
+                if theme_name not in self.THEMES or not isinstance(colors, dict):
+                    continue
+                valid_colors = {
+                    color_name: color
+                    for color_name, color in colors.items()
+                    if color_name in dict(self.CUSTOMIZABLE_COLORS)
+                    and isinstance(color, str)
+                    and re.fullmatch(r"#[0-9a-fA-F]{6}", color)
+                }
+                if valid_colors:
+                    custom_colors[theme_name] = valid_colors
+        return theme, custom_colors
+
+    def _save_settings(self) -> bool:
+        settings = {
+            "theme": self.theme_var.get(),
+            "custom_colors": self.custom_theme_colors,
+        }
+        try:
+            self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.settings_path.open("w", encoding="utf-8") as settings_file:
+                json.dump(settings, settings_file, indent=2)
+                settings_file.write("\n")
+        except OSError as error:
+            messagebox.showerror(
+                "Settings", f"Could not save settings:\n{error}", parent=self.root
+            )
+            return False
+        return True
+
+    def _select_theme(self) -> None:
+        self._set_theme(self.theme_var.get())
+        self._save_settings()
+
+    def _reset_colors_to_light(self) -> None:
+        previous_theme = self.theme_var.get()
+        previous_colors = {
+            theme_name: colors.copy()
+            for theme_name, colors in self.custom_theme_colors.items()
+        }
+        self.theme_var.set("Light")
+        self.custom_theme_colors.clear()
+        self._set_theme("Light")
+        if not self._save_settings():
+            self.custom_theme_colors.update(previous_colors)
+            self.theme_var.set(previous_theme)
+            self._set_theme(previous_theme)
+
+    def _customize_theme_colors(self) -> None:
+        theme_name = self.theme_var.get()
+        original_colors = self.custom_theme_colors.get(theme_name, {}).copy()
+        palette = {
+            **self.THEMES[theme_name],
+            **original_colors,
+        }
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Customize {theme_name} Theme")
+        dialog.transient(self.root)
+        dialog.resizable(True, True)
+        dialog.geometry("820x680")
+        dialog.minsize(720, 600)
+        dialog.configure(background=palette["background"])
+
+        tk.Label(
+            dialog,
+            text="Adjust the RGB sliders to customize this theme.",
+            anchor=tk.W,
+            padx=12,
+            pady=10,
+            background=palette["background"],
+            foreground=palette["foreground"],
+        ).pack(fill=tk.X)
+
+        controls: dict[str, tuple[list[tk.IntVar], tk.Label]] = {}
+
+        def update_color(color_name: str) -> None:
+            values, preview = controls[color_name]
+            color = "#{:02x}{:02x}{:02x}".format(
+                *(channel.get() for channel in values)
+            )
+            preview.configure(background=color)
+            self.custom_theme_colors.setdefault(theme_name, {})[color_name] = color
+            self._set_theme(theme_name)
+
+        def slider_changed(color_name: str, channel_index: int, value: str) -> None:
+            values = controls[color_name][0]
+            values[channel_index].set(round(float(value)))
+            update_color(color_name)
+
+        for color_name, label in self.CUSTOMIZABLE_COLORS:
+            color_frame = tk.LabelFrame(
+                dialog,
+                text=label,
+                padx=8,
+                pady=4,
+                background=palette["background"],
+                foreground=palette["foreground"],
+            )
+            color_frame.pack(fill=tk.X, padx=12, pady=4)
+            for column in (1, 2, 3):
+                color_frame.columnconfigure(column, weight=1)
+            preview = tk.Label(
+                color_frame,
+                width=6,
+                relief=tk.SUNKEN,
+                background=palette[color_name],
+            )
+            preview.grid(row=0, column=0, rowspan=2, padx=(0, 10))
+            channels = [
+                int(palette[color_name][index:index + 2], 16)
+                for index in (1, 3, 5)
+            ]
+            channel_vars: list[tk.IntVar] = []
+            for column, (channel, value) in enumerate(zip(("R", "G", "B"), channels), 1):
+                tk.Label(
+                    color_frame,
+                    text=channel,
+                    background=palette["background"],
+                    foreground=palette["foreground"],
+                ).grid(row=0, column=column, sticky=tk.W)
+                value_var = tk.IntVar(value=value)
+                scale = tk.Scale(
+                    color_frame,
+                    from_=0,
+                    to=255,
+                    orient=tk.HORIZONTAL,
+                    resolution=1,
+                    showvalue=True,
+                    variable=value_var,
+                    background=palette["background"],
+                    foreground=palette["foreground"],
+                    troughcolor=palette["panel"],
+                    activebackground=palette["accent_hover"],
+                    highlightthickness=0,
+                    command=lambda value, name=color_name, index=column - 1: slider_changed(
+                        name, index, value
+                    ),
+                )
+                scale.grid(row=1, column=column, sticky=tk.EW, padx=3)
+                channel_vars.append(value_var)
+            controls[color_name] = (channel_vars, preview)
+
+        buttons = tk.Frame(dialog, background=palette["background"])
+        buttons.pack(fill=tk.X, padx=12, pady=10)
+
+        def restore_original() -> None:
+            if original_colors:
+                self.custom_theme_colors[theme_name] = original_colors
+            else:
+                self.custom_theme_colors.pop(theme_name, None)
+            self._set_theme(theme_name)
+
+        def cancel() -> None:
+            restore_original()
+            dialog.destroy()
+
+        def reset_defaults() -> None:
+            self.custom_theme_colors.pop(theme_name, None)
+            for color_name in dict(self.CUSTOMIZABLE_COLORS):
+                values = controls[color_name][0]
+                for value_var, index in zip(values, (1, 3, 5)):
+                    value_var.set(int(self.THEMES[theme_name][color_name][index:index + 2], 16))
+                update_color(color_name)
+            self.custom_theme_colors.pop(theme_name, None)
+            self._set_theme(theme_name)
+
+        def apply() -> None:
+            if self._save_settings():
+                dialog.destroy()
+
+        tk.Button(
+            buttons,
+            text="Reset Defaults",
+            command=reset_defaults,
+            background=palette["surface"],
+            foreground=palette["foreground"],
+        ).pack(side=tk.LEFT)
+        tk.Button(
+            buttons,
+            text="Cancel",
+            command=cancel,
+            background=palette["surface"],
+            foreground=palette["foreground"],
+        ).pack(side=tk.RIGHT, padx=(6, 0))
+        tk.Button(
+            buttons,
+            text="Apply",
+            command=apply,
+            background=palette["accent"],
+            foreground=palette["accent_foreground"],
+        ).pack(side=tk.RIGHT)
+        dialog.protocol("WM_DELETE_WINDOW", cancel)
+        dialog.grab_set()
+        dialog.wait_window()
+
     def _create_widgets(self) -> None:
-        self.welcome = ttk.Frame(self.root)
+        self.welcome = tk.Canvas(self.root, bd=0, highlightthickness=0)
         self.welcome.pack(fill=tk.BOTH, expand=True)
-        welcome_content = ttk.Frame(self.welcome, padding=32)
-        welcome_content.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
-        ttk.Label(
-            welcome_content, text="| Welcome to GRAVEL |", font=("Segoe UI", 22, "bold")
-        ).pack(pady=(0, 8))
-        ttk.Label(
-            welcome_content,
-            text="| General Runtime for Agile Visual Edition & Linking |",
-            font=("Segoe UI", 11),
-        ).pack(pady=(0, 20))
         self.welcome_select_button = ttk.Button(
-            welcome_content, text="Select Folder", command=self.open_folder
+            self.welcome, text="Select Folder", command=self.open_folder,
+            style="Welcome.TButton",
         )
-        self.welcome_select_button.configure(style="Accent.TButton")
-        self.welcome_select_button.pack()
+        self.welcome.bind("<Configure>", self._draw_welcome)
 
         self.workspace = ttk.Frame(self.root)
         toolbar = ttk.Frame(self.workspace, padding=(8, 6))
@@ -450,7 +700,10 @@ class PythonEditor:
         self._set_title()
 
     def _set_theme(self, theme_name: str) -> None:
-        palette = self.THEMES[theme_name]
+        palette = {
+            **self.THEMES[theme_name],
+            **self.custom_theme_colors.get(theme_name, {}),
+        }
         self.theme_var.set(theme_name)
         self.root.configure(background=palette["background"])
 
@@ -596,6 +849,19 @@ class PythonEditor:
         )
         style.configure("TPanedwindow", background=palette["border"])
         style.configure("Sash", background=palette["border"])
+        style.configure(
+            "Welcome.TButton",
+            background="#286be8",
+            foreground="#ffffff",
+            bordercolor="#286be8",
+            padding=(16, 9),
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map(
+            "Welcome.TButton",
+            background=[("pressed", "#174caf"), ("active", "#174caf")],
+            foreground=[("pressed", "#ffffff"), ("active", "#ffffff")],
+        )
 
         for menu in (self.menu, self.tree_menu):
             menu.configure(
@@ -627,6 +893,55 @@ class PythonEditor:
         for tag in self.SYNTAX_TAGS:
             self.editor.tag_configure(f"syntax_{tag}", foreground=palette[tag])
         self._highlight_syntax()
+
+    def _draw_welcome(self, event: tk.Event) -> None:
+        width = event.width
+        height = event.height
+        if width <= 1 or height <= 1:
+            return
+
+        self.welcome.delete("welcome_background", "welcome_content")
+        top_color = (255, 255, 255)
+        middle_color = (232, 250, 255)
+        bottom_color = (91, 139, 255)
+        band_height = max(1, height // 120)
+        for y in range(0, height, band_height):
+            progress = y / max(1, height - 1)
+            if progress < 0.42:
+                start, end = top_color, middle_color
+                blend = progress / 0.42
+            else:
+                start, end = middle_color, bottom_color
+                blend = (progress - 0.42) / 0.58
+            color = "#" + "".join(
+                f"{round(first + (last - first) * blend):02x}"
+                for first, last in zip(start, end)
+            )
+            self.welcome.create_rectangle(
+                0, y, width, y + band_height, fill=color, outline=color,
+                tags="welcome_background",
+            )
+
+        logo = (
+            self.welcome_logo_large
+            if height >= self.welcome_logo_large.height() + 100
+            else self.welcome_logo_small
+        )
+        button_height = self.welcome_select_button.winfo_reqheight()
+        content_height = logo.height() + 18 + button_height
+        top = max(12, (height - content_height) // 2)
+        self.welcome.create_image(
+            width // 2,
+            top + logo.height() // 2,
+            image=logo,
+            tags="welcome_content",
+        )
+        self.welcome.create_window(
+            width // 2,
+            top + logo.height() + 18 + button_height // 2,
+            window=self.welcome_select_button,
+            tags="welcome_content",
+        )
 
     def _toggle_ai_panel(self) -> None:
         if self.ai_panel_visible:
@@ -768,6 +1083,10 @@ class PythonEditor:
         self.pending_script_path = self.current_file
         self.ai_prompt_entry.delete(0, tk.END)
         self._append_ai_message("You", f"Edit script: {instruction}")
+        recent_history = "\n".join(
+            f"{speaker}: {text}" for speaker, text in self.ai_history[-8:]
+        )
+        self.ai_history.append(("You", f"Edit script: {instruction}"))
         extension = self.current_file.suffix.lower() if self.current_file else ".py"
         language = {
             ".py": "Python",
@@ -790,6 +1109,7 @@ class PythonEditor:
             f"Edit the user's complete {language} file. Return a full replacement for the entire file "
             f"in exactly one ```{language.lower()} code block. Preserve unrelated behavior. "
             "If the request is ambiguous, ask a question instead of returning code.\n\n"
+            f"Recent conversation:\n{recent_history or '(none)'}\n\n"
             f"Current file:\n```{language.lower()}\n{source}\n```\n\n"
             f"Requested change: {instruction}"
         )
@@ -946,11 +1266,8 @@ class PythonEditor:
                 self.pending_script_edit = None
                 self.pending_script_source = None
                 self.pending_script_path = None
-                self.ai_status.set("The AI did not return a complete file in a code block.")
-                self._append_ai_message(
-                    "Assistant",
-                    "I couldn't apply that response because it did not contain a complete file in a code block.",
-                )
+                self.ai_status.set("The AI responded without code; no changes were made.")
+                self._append_ai_message("Assistant", answer)
                 return
             extension = self.pending_script_path.suffix.lower() if self.pending_script_path else ".py"
             try:
@@ -1681,3 +1998,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+# By QuantumNight101 | Branson325 | Bransonl474@gmail | Quantum-go.base44.app
