@@ -30,6 +30,7 @@ GRAVEL is a small editor built with Python's standard-library **Tkinter** GUI to
 No Python packages need to be installed for the editor itself.
 
 ### Start it [windows executable (exe)]
+### [BROKEN (FIXING)]
 
 1. Open the GRAVEL ENGINE INSTALL folder.
 2. Open the extracted folder's `dist` folder.
