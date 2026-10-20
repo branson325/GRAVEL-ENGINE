@@ -143,3 +143,7 @@ Keep the `images` folder beside `main.py`; the application loads the welcome log
   <img src="images/java.png" alt="Java file icon" width="48">
   <img src="images/json.png" alt="JSON file icon" width="48">
 </p>
+
+
+### This is all made by me pls support it took me 2 years to develop 1.0.0, I'm in year 7 and failing so pls help and support me by watching this project and liking it.
+# Thank You
