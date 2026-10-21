@@ -425,7 +425,9 @@ class AIAssistantMixin:
 
             return
 
-        output = self.last_run_output[-12000:].strip()
+        output = (
+            getattr(self, "last_run_error", "") or self.last_run_output
+        )[-12000:].strip()
 
         if not output:
 
@@ -434,22 +436,44 @@ class AIAssistantMixin:
             return
 
         code = self.editor.get("1.0", "end-1c")[-8000:]
-
+        language = self.current_file.suffix.lstrip(".") if self.current_file else "text"
         self._append_ai_message("You", "Explain the last run output")
-
         prompt = (
-
             "Explain the program output or error below. Identify the likely cause and give a concise fix. "
-
             "Do not change the code automatically.\n\n"
-
-            f"Open Python code:\n```python\n{code}\n```\n\n"
-
+            f"Open source code:\n```{language}\n{code}\n```\n\n"
             f"Last run output:\n```text\n{output}\n```"
-
         )
-
         self._request_ai(prompt, "explanation")
+
+    def _fix_last_run_with_ai(self) -> None:
+        if not self.ai_panel_visible:
+            self._toggle_ai_panel()
+        self._explain_last_run()
+
+    def _begin_ai_stream(self) -> None:
+        self.ai_chat.configure(state=tk.NORMAL)
+        self.ai_chat.insert(tk.END, "Assistant:\n")
+        self.ai_chat.see(tk.END)
+        self.ai_chat.configure(state=tk.DISABLED)
+        self._ai_stream_active = True
+
+    def _append_ai_stream_chunk(self, chunk: str) -> None:
+        if not getattr(self, "_ai_stream_active", False):
+            return
+        self.ai_chat.configure(state=tk.NORMAL)
+        self.ai_chat.insert(tk.END, chunk)
+        self.ai_chat.see(tk.END)
+        self.ai_chat.configure(state=tk.DISABLED)
+
+    def _finish_ai_stream(self) -> None:
+        if not getattr(self, "_ai_stream_active", False):
+            return
+        self.ai_chat.configure(state=tk.NORMAL)
+        self.ai_chat.insert(tk.END, "\n\n")
+        self.ai_chat.see(tk.END)
+        self.ai_chat.configure(state=tk.DISABLED)
+        self._ai_stream_active = False
 
     def _request_ai(self, prompt: str, action: str) -> None:
 
@@ -476,16 +500,18 @@ class AIAssistantMixin:
         self.ai_complete_button.configure(state=tk.DISABLED)
 
         self.ai_edit_button.configure(state=tk.DISABLED)
+        self._begin_ai_stream()
 
         def generate() -> None:
 
-            result = None
-
+            result_parts: list[str] = []
             error_message = None
 
             try:
 
-                payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
+                payload = json.dumps(
+                    {"model": model, "prompt": prompt, "stream": True}
+                ).encode("utf-8")
 
                 request = urllib.request.Request(
 
@@ -501,7 +527,14 @@ class AIAssistantMixin:
 
                 with urllib.request.urlopen(request, timeout=180) as response:
 
-                    result = json.load(response).get("response", "").strip()
+                    for line in response:
+                        if not line.strip():
+                            continue
+                        message = json.loads(line)
+                        chunk = message.get("response", "")
+                        if chunk:
+                            result_parts.append(chunk)
+                            self.root.after(0, self._append_ai_stream_chunk, chunk)
 
             except urllib.error.HTTPError as error:
 
@@ -519,12 +552,16 @@ class AIAssistantMixin:
 
                 error_message = str(error)
 
-            self.root.after(0, lambda: self._finish_ai_request(action, result, error_message))
+            result = "".join(result_parts).strip()
+            self.root.after(
+                0, lambda: self._finish_ai_request(action, result, error_message)
+            )
 
         threading.Thread(target=generate, daemon=True).start()
 
     def _finish_ai_request(self, action: str, result: str | None, error: str | None) -> None:
 
+        self._finish_ai_stream()
         self.ai_busy = False
 
         self.ai_send_button.configure(state=tk.NORMAL)
@@ -611,7 +648,6 @@ class AIAssistantMixin:
 
                 self.ai_status.set("The AI responded without code; no changes were made.")
 
-                self._append_ai_message("Assistant", answer)
 
                 return
 
@@ -698,5 +734,3 @@ class AIAssistantMixin:
             self.pending_completion_source = None
 
             self.pending_completion_index = None
-
-        self._append_ai_message("Assistant", answer)
