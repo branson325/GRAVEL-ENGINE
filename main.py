@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import fnmatch
 import io
 import json
 import keyword
@@ -18,12 +19,12 @@ import traceback
 import urllib.request
 import webbrowser
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import messagebox, simpledialog, ttk
 from tkinter import font as tkfont
 
 
 class PythonEditor:
-    VERSION = "1.0.1"
+    VERSION = "1.0.2"
     SUPPORTED_FILETYPES = (
         ("Supported files", "*.py *.html *.htm *.css *.json *.js *.mjs *.cjs *.javascript *.java"),
         ("Python files", "*.py"),
@@ -99,7 +100,7 @@ class PythonEditor:
         self._syntax_after_id: str | None = None
         self._closing = False
         self.settings_path = Path.home() / ".gravel" / "settings.json"
-        initial_theme, self.custom_theme_colors = self._load_settings()
+        initial_theme, self.custom_theme_colors, self.recent_paths = self._load_settings()
         self.theme_var = tk.StringVar(value=initial_theme)
         self.tab_size_var = tk.IntVar(value=4)
         self.ai_apply_edits_var = tk.BooleanVar(value=True)
@@ -143,6 +144,9 @@ class PythonEditor:
         file_menu.add_command(
             label="Open Folder...", accelerator="Ctrl+Shift+O", command=self.open_folder
         )
+        self.recent_menu = tk.Menu(file_menu, tearoff=False)
+        self._refresh_recent_menu()
+        file_menu.add_cascade(label="Recent Files", menu=self.recent_menu)
         file_menu.add_separator()
         file_menu.add_command(label="Save", accelerator="Ctrl+S", command=self.save_file)
         file_menu.add_command(label="Save As...", command=self.save_file_as)
@@ -193,22 +197,22 @@ class PythonEditor:
             )
         return theme_menu
 
-    def _load_settings(self) -> tuple[str, dict[str, dict[str, str]]]:
+    def _load_settings(self) -> tuple[str, dict[str, dict[str, str]], list[str]]:
         try:
             with self.settings_path.open(encoding="utf-8") as settings_file:
                 settings = json.load(settings_file)
         except FileNotFoundError:
-            return "Light", {}
+            return "Light", {}, []
         except (json.JSONDecodeError, UnicodeError) as error:
             messagebox.showwarning(
                 "Settings", f"Could not read settings file:\n{error}", parent=self.root
             )
-            return "Light", {}
+            return "Light", {}, []
         except OSError as error:
             messagebox.showwarning(
                 "Settings", f"Could not read settings file:\n{error}", parent=self.root
             )
-            return "Light", {}
+            return "Light", {}, []
 
         if not isinstance(settings, dict):
             messagebox.showwarning(
@@ -216,7 +220,7 @@ class PythonEditor:
                 "Settings file has an invalid format. Using default settings.",
                 parent=self.root,
             )
-            return "Light", {}
+            return "Light", {}, []
 
         theme = settings.get("theme")
         if not isinstance(theme, str) or theme not in self.THEMES:
@@ -243,12 +247,22 @@ class PythonEditor:
                 }
                 if valid_colors:
                     custom_colors[theme_name] = valid_colors
-        return theme, custom_colors
+
+        recent = settings.get("recent_files", [])
+        recent_paths: list[str] = []
+        if isinstance(recent, list):
+            recent_paths = [
+                item
+                for item in recent
+                if isinstance(item, str) and Path(item).exists()
+            ][:8]
+        return theme, custom_colors, recent_paths
 
     def _save_settings(self) -> bool:
         settings = {
             "theme": self.theme_var.get(),
             "custom_colors": self.custom_theme_colors,
+            "recent_files": self.recent_paths,
         }
         try:
             self.settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -467,7 +481,8 @@ class PythonEditor:
         self.main = ttk.PanedWindow(self.workspace, orient=tk.HORIZONTAL)
         self.main.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
-        explorer = ttk.Frame(self.main, width=240)
+        self.explorer = ttk.Frame(self.main, width=240)
+        explorer = self.explorer
         explorer.columnconfigure(0, weight=1)
         ttk.Label(explorer, text="PROJECT", padding=(6, 5)).grid(
             row=0, column=0, sticky=tk.W
@@ -661,6 +676,41 @@ class PythonEditor:
         else:
             self.save_state.set("Saved")
 
+    def _add_recent_path(self, path: Path | None) -> None:
+        if path is None:
+            return
+        normalized = str(path.resolve())
+        self.recent_paths = [item for item in self.recent_paths if item != normalized]
+        self.recent_paths.insert(0, normalized)
+        self.recent_paths = self.recent_paths[:8]
+        self._save_settings()
+        self._refresh_recent_menu()
+
+    def _refresh_recent_menu(self) -> None:
+        if not hasattr(self, "recent_menu"):
+            return
+        self.recent_menu.delete(0, tk.END)
+        if not self.recent_paths:
+            self.recent_menu.add_command(label="No recent files", state=tk.DISABLED)
+            return
+        for recent_path in self.recent_paths:
+            file_path = Path(recent_path)
+            if not file_path.exists():
+                continue
+            self.recent_menu.add_command(
+                label=file_path.name,
+                command=lambda path=recent_path: self._open_recent_file(path),
+            )
+
+    def _open_recent_file(self, path: str) -> None:
+        file_path = Path(path)
+        if file_path.exists():
+            self._load_file(file_path)
+        else:
+            self.recent_paths = [item for item in self.recent_paths if item != path]
+            self._save_settings()
+            self._refresh_recent_menu()
+
     def _apply_tab_size(self) -> None:
         space_width = tkfont.Font(
             root=self.root, font=self.editor.cget("font")
@@ -851,6 +901,12 @@ class PythonEditor:
             background=[("active", palette["accent"])],
             foreground=[("active", palette["accent_foreground"])],
         )
+
+        style.configure(
+            "Explorer.TFrame",
+            background=palette["panel"],
+        )
+        self.explorer.configure(style="Explorer.TFrame")
         style.configure(
             "TScrollbar",
             background=palette["surface"],
@@ -1450,17 +1506,348 @@ class PythonEditor:
         self.status.set("New file — start typing, then save to choose a location")
         self.editor.focus_set()
 
+    def _file_picker_palette(self) -> dict[str, str]:
+        theme_name = self.theme_var.get()
+        return {
+            **self.THEMES[theme_name],
+            **self.custom_theme_colors.get(theme_name, {}),
+        }
+
+    def _desktop_path(self) -> Path:
+        candidates = (
+            Path.home() / "OneDrive" / "Desktop",
+            Path.home() / "Desktop",
+        )
+        return next((path for path in candidates if path.is_dir()), Path.home())
+
+    def _show_file_picker(
+        self,
+        title: str,
+        mode: str,
+        initial_dir: Path | None = None,
+        default_name: str = "",
+    ) -> str | None:
+        palette = self._file_picker_palette()
+        start_dir = initial_dir or self._desktop_path()
+        current_dir = start_dir if start_dir.is_dir() else Path.home()
+        result: str | None = None
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.transient(self.root)
+        dialog.configure(background=palette["background"])
+        dialog.geometry("920x600")
+        dialog.minsize(680, 430)
+        dialog.grab_set()
+
+        style = ttk.Style(dialog)
+        style.configure(
+            "Picker.Treeview",
+            background=palette["field"],
+            fieldbackground=palette["field"],
+            foreground=palette["foreground"],
+            rowheight=27,
+            bordercolor=palette["border"],
+            font=("Consolas", 10),
+        )
+        style.map(
+            "Picker.Treeview",
+            background=[("selected", palette["accent"])],
+            foreground=[("selected", palette["accent_foreground"])],
+        )
+        style.configure(
+            "Picker.Treeview.Heading",
+            background=palette["surface"],
+            foreground=palette["foreground"],
+            font=("Consolas", 9, "bold"),
+            relief=tk.RAISED,
+        )
+        style.map(
+            "Picker.Treeview.Heading",
+            background=[("active", palette["accent"])],
+            foreground=[("active", palette["accent_foreground"])],
+        )
+        style.configure("Picker.TButton", font=("Consolas", 9, "bold"), padding=(8, 5))
+
+        outer = ttk.Frame(dialog, padding=8)
+        outer.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        toolbar = ttk.Frame(outer)
+        toolbar.pack(fill=tk.X, pady=(0, 8))
+        ttk.Button(
+            toolbar, text="<", style="Picker.TButton", command=lambda: go_back()
+        ).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(
+            toolbar,
+            text="UP",
+            style="Picker.TButton",
+            command=lambda: navigate(current_dir.parent),
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            toolbar,
+            text="REFRESH",
+            style="Picker.TButton",
+            command=lambda: refresh_listing(current_dir),
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Label(toolbar, text="LOCATION").pack(side=tk.LEFT, padx=(12, 6))
+        location_var = tk.StringVar(value=str(current_dir))
+        location_entry = ttk.Entry(toolbar, textvariable=location_var)
+        location_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        ttk.Label(toolbar, text="SEARCH").pack(side=tk.LEFT, padx=(0, 6))
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(toolbar, textvariable=search_var, width=20)
+        search_entry.pack(side=tk.LEFT)
+
+        body = ttk.Frame(outer)
+        body.pack(fill=tk.BOTH, expand=True)
+        sidebar = ttk.Frame(body, padding=(4, 4), width=165)
+        sidebar.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
+        sidebar.pack_propagate(False)
+        ttk.Label(sidebar, text="QUICK ACCESS").pack(anchor=tk.W, padx=6, pady=(4, 8))
+        desktop = self._desktop_path()
+        shortcuts = [
+            ("Home", Path.home()),
+            ("Desktop", desktop),
+            ("Downloads", Path.home() / "Downloads"),
+            ("Documents", Path.home() / "Documents"),
+            ("This PC", Path(Path.home().anchor)),
+        ]
+        for label, shortcut_path in shortcuts:
+            ttk.Button(
+                sidebar,
+                text=f"  {label}",
+                style="Picker.TButton",
+                command=lambda target=shortcut_path: navigate(target),
+            ).pack(fill=tk.X, pady=2)
+        ttk.Separator(sidebar, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
+        ttk.Label(
+            sidebar,
+            text="GRAVEL\nPIXEL PICKER",
+            justify=tk.LEFT,
+            foreground=palette["muted"],
+            font=("Consolas", 9, "bold"),
+        ).pack(anchor=tk.W, padx=6)
+
+        content = ttk.Frame(body)
+        content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        content.rowconfigure(1, weight=1)
+        content.columnconfigure(0, weight=1)
+        ttk.Label(content, text="FILES", padding=(8, 6)).grid(
+            row=0, column=0, sticky="ew"
+        )
+        listing = ttk.Treeview(
+            content,
+            columns=("type", "size"),
+            show="tree headings",
+            selectmode="browse",
+            style="Picker.Treeview",
+        )
+        listing.heading("#0", text="Name", anchor=tk.W)
+        listing.heading("type", text="Type", anchor=tk.W)
+        listing.heading("size", text="Size", anchor=tk.E)
+        listing.column("#0", width=360, minwidth=160, stretch=True)
+        listing.column("type", width=100, minwidth=70, stretch=False)
+        listing.column("size", width=90, minwidth=60, stretch=False, anchor=tk.E)
+        listing.grid(row=1, column=0, sticky="nsew")
+        listing_scroll = ttk.Scrollbar(
+            content, orient=tk.VERTICAL, command=listing.yview
+        )
+        listing_scroll.grid(row=1, column=1, sticky="ns")
+        listing.configure(yscrollcommand=listing_scroll.set)
+        entries_by_item: dict[str, Path] = {}
+        history: list[Path] = []
+        status_var = tk.StringVar()
+        ttk.Label(outer, textvariable=status_var, anchor=tk.W, padding=(6, 5)).pack(
+            fill=tk.X
+        )
+
+        filter_var = tk.StringVar(value=self.SUPPORTED_FILETYPES[0][0])
+        filter_patterns = {
+            label: patterns.split()
+            for label, patterns in self.SUPPORTED_FILETYPES
+        }
+        if mode == "open_file":
+            filter_box = ttk.Combobox(
+                toolbar,
+                textvariable=filter_var,
+                values=tuple(filter_patterns),
+                state="readonly",
+                width=20,
+            )
+            filter_box.pack(side=tk.RIGHT, padx=(8, 0))
+
+        filename_var = tk.StringVar(value=default_name)
+        if mode == "save":
+            filename_row = ttk.Frame(outer)
+            filename_row.pack(fill=tk.X, pady=(5, 0))
+            ttk.Label(filename_row, text="File name:").pack(side=tk.LEFT, padx=(0, 8))
+            filename_entry = ttk.Entry(filename_row, textvariable=filename_var)
+            filename_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def refresh_listing(directory: Path) -> None:
+            nonlocal current_dir
+            try:
+                entries = sorted(
+                    directory.iterdir(),
+                    key=lambda entry: (not entry.is_dir(), entry.name.casefold()),
+                )
+            except OSError as error:
+                status_var.set(f"Cannot read folder: {error}")
+                return
+
+            current_dir = directory
+            listing.delete(*listing.get_children())
+            entries_by_item.clear()
+
+            patterns = filter_patterns.get(filter_var.get(), ["*"])
+            search_text = search_var.get().strip().casefold()
+            if search_text == "search this folder":
+                search_text = ""
+            for entry in entries:
+                try:
+                    is_dir = entry.is_dir()
+                except OSError:
+                    continue
+                if mode == "open_folder" and not is_dir:
+                    continue
+                if search_text and search_text not in entry.name.casefold():
+                    continue
+                if mode == "open_file" and not is_dir and not any(
+                    fnmatch.fnmatchcase(entry.name.casefold(), pattern.casefold())
+                    for pattern in patterns
+                ):
+                    continue
+                item_type = "Folder" if is_dir else f"{entry.suffix[1:].upper() or 'File'} file"
+                try:
+                    size = "" if is_dir else f"{entry.stat().st_size:,} B"
+                except OSError:
+                    size = ""
+                item = listing.insert(
+                    "",
+                    tk.END,
+                    text=f"[+] {entry.name}" if is_dir else entry.name,
+                    values=(item_type, size),
+                )
+                entries_by_item[item] = entry
+            location_var.set(str(directory))
+            status_var.set(f"{len(entries_by_item)} items   |   {directory}")
+
+        def navigate(directory: Path) -> None:
+            if not directory.is_dir():
+                status_var.set(f"Folder not found: {directory}")
+                return
+            if directory != current_dir:
+                history.append(current_dir)
+            refresh_listing(directory)
+
+        def go_back() -> None:
+            if history:
+                refresh_listing(history.pop())
+
+        def navigate_to_location(_event: tk.Event | None = None) -> None:
+            candidate = Path(location_var.get().strip()).expanduser()
+            if not candidate.is_dir():
+                status_var.set("That location is not a folder.")
+                return
+            navigate(candidate)
+
+        def selected_path() -> Path | None:
+            selected = listing.selection()
+            if not selected:
+                return None
+            return entries_by_item.get(selected[0])
+
+        def activate_selection(_event: tk.Event | None = None) -> None:
+            nonlocal result
+            path = selected_path()
+            if path is None:
+                return
+            if path.is_dir():
+                refresh_listing(path)
+            elif mode == "open_file" and path.is_file():
+                result = str(path)
+                dialog.destroy()
+            elif mode == "save":
+                filename_var.set(path.name)
+
+        def choose_folder() -> None:
+            nonlocal result
+            result = str(current_dir)
+            dialog.destroy()
+
+        def accept() -> None:
+            nonlocal result
+            if mode == "open_folder":
+                choose_folder()
+                return
+            if mode == "open_file":
+                path = selected_path()
+                if path is None or not path.is_file():
+                    status_var.set("Select a file to open.")
+                    return
+                result = str(path)
+                dialog.destroy()
+                return
+
+            name = filename_var.get().strip()
+            if not name or name in {".", ".."} or Path(name).name != name:
+                status_var.set("Enter a valid file name.")
+                return
+            path = current_dir / name
+            if path.exists() and not messagebox.askyesno(
+                "Replace File",
+                f"{path.name} already exists. Replace it?",
+                parent=dialog,
+            ):
+                return
+            result = str(path)
+            dialog.destroy()
+
+        def select_item(_event: tk.Event | None = None) -> None:
+            path = selected_path()
+            if mode == "save" and path is not None and path.is_file():
+                filename_var.set(path.name)
+
+        listing.bind("<Double-Button-1>", activate_selection)
+        listing.bind("<Return>", activate_selection)
+        listing.bind("<<TreeviewSelect>>", select_item)
+        location_entry.bind("<Return>", navigate_to_location)
+        search_var.trace_add("write", lambda *_args: refresh_listing(current_dir))
+        if mode == "open_file":
+            filter_var.trace_add(
+                "write", lambda *_args: refresh_listing(current_dir)
+            )
+        refresh_listing(current_dir)
+
+        button_row = ttk.Frame(outer)
+        button_row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(
+            button_row,
+            text="OPEN" if mode == "open_file" else "SAVE" if mode == "save" else "USE FOLDER",
+            command=accept,
+            style="Accent.TButton",
+        ).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Button(
+            button_row, text="CANCEL", command=dialog.destroy, style="Picker.TButton"
+        ).pack(side=tk.RIGHT)
+
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        if mode == "open_file":
+            listing.focus_set()
+        elif mode == "save":
+            filename_entry.focus_set()
+        dialog.wait_window()
+        return result
+
     def open_file(self) -> None:
         if not self._save_pending_changes():
             return
-        filename = filedialog.askopenfilename(
-            title="Open File",
-            filetypes=self.SUPPORTED_FILETYPES,
-            parent=self.root,
+        filename = self._show_file_picker(
+            "Open File",
+            mode="open_file",
         )
-        if not filename:
-            return
-        self._load_file(Path(filename))
+        if filename:
+            self._load_file(Path(filename))
 
     def _load_file(self, path: Path) -> None:
         try:
@@ -1472,13 +1859,17 @@ class PythonEditor:
         if self.project_folder is None:
             self._set_project_folder(path.parent)
         self.current_file = path
+        self._add_recent_path(path)
         self._set_editor_text(text)
         self.status.set(f"Opened {path}")
 
     def open_folder(self) -> None:
         if not self._save_pending_changes():
             return
-        folder = filedialog.askdirectory(title="Open project folder", parent=self.root)
+        folder = self._show_file_picker(
+            "Open Project Folder",
+            mode="open_folder",
+        )
         if folder:
             self._set_project_folder(Path(folder))
 
@@ -1829,12 +2220,10 @@ class PythonEditor:
         return self._write_file(self.current_file)
 
     def save_file_as(self) -> bool:
-        filename = filedialog.asksaveasfilename(
-            title="Save File",
-            defaultextension=".py",
-            filetypes=self.SUPPORTED_FILETYPES,
-            initialfile=self.current_file.name if self.current_file else "untitled.py",
-            parent=self.root,
+        filename = self._show_file_picker(
+            "Save File",
+            mode="save",
+            default_name=self.current_file.name if self.current_file else "untitled.py",
         )
         if not filename:
             return False
@@ -2102,3 +2491,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+# https://github.com/branson325/GRAVEL-ENGINE/
