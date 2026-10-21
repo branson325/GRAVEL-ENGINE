@@ -33,7 +33,10 @@ No Python packages need to be installed for the editor itself.
 
 ### Start it
 
-Open a terminal in the GRAVEL folder and run:
+OPTION 1: Run from file
+Double click main.py
+
+OPTION 2: Open a terminal in the GRAVEL folder and run:
 
 ```powershell
 py main.py
