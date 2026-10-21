@@ -3,6 +3,7 @@ import json
 import queue
 import subprocess
 import sys
+import tempfile
 import threading
 import tkinter as tk
 import tokenize
@@ -11,6 +12,7 @@ import webbrowser
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 
+from runners.c_cpp import available_cpp_compiler, cpp_command
 from runners.java import java_command
 from runners.web_js import javascript_command
 
@@ -22,7 +24,7 @@ class RunnerMixin:
         self.output.configure(state=tk.DISABLED)
 
     def run_file(self) -> None:
-        if self.process is not None:
+        if self.process is not None or self._compile_in_progress:
             self.status.set("A file is already running")
             return
         if self.current_file is None:
@@ -38,6 +40,8 @@ class RunnerMixin:
         self.output.delete("1.0", tk.END)
         self.output.configure(state=tk.DISABLED)
         self.last_run_output = ""
+        self.last_run_error = ""
+        self.fix_run_button.pack_forget()
         path = self.current_file
         extension = path.suffix.lower()
 
@@ -73,15 +77,19 @@ class RunnerMixin:
 
         if extension == ".json":
             try:
-                with path.open(encoding="utf-8") as source_file:
-                    formatted_json = json.dumps(
-                        json.load(source_file), indent=2, ensure_ascii=False
-                    )
-            except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                formatted_json = json.dumps(
+                    json.loads(self.editor.get("1.0", "end-1c")),
+                    indent=4,
+                    ensure_ascii=False,
+                )
+            except json.JSONDecodeError as error:
                 message = f"JSON validation failed: {error}"
                 self._append_output(message + "\n")
                 self.last_run_output = message
                 self.status.set("JSON validation failed")
+                return
+            self._set_editor_text(formatted_json)
+            if not self._write_file(path):
                 return
             self._append_output(formatted_json + "\n")
             self.last_run_output = formatted_json
@@ -107,6 +115,21 @@ class RunnerMixin:
         elif extension == ".java":
             self._append_output("Running Java source file...\n\n")
             command = java_command(path)
+        elif extension in {".c", ".cc", ".cpp", ".cxx"}:
+            compiler = available_cpp_compiler(path)
+            if compiler is None:
+                runtime = "GCC" if extension == ".c" else "G++"
+                message = (
+                    f"{runtime} was not found. Install a C/C++ compiler and ensure "
+                    "its command is on PATH."
+                )
+                self.last_run_output = message
+                self._append_output(message + "\n")
+                self.status.set(f"Could not start: {runtime} was not found")
+                messagebox.showerror("Could Not Run File", message, parent=self.root)
+                return
+            self._compile_cpp_file(path, compiler)
+            return
         else:
             message = f"Running files with the {extension or 'unknown'} extension is not supported."
             self._append_output(message + "\n")
@@ -115,17 +138,7 @@ class RunnerMixin:
             return
 
         try:
-            self.process = subprocess.Popen(
-                command,
-                cwd=str(path.parent),
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-            )
+            self._start_process(command, path)
         except FileNotFoundError:
             runtime = {
                 "node": "Node.js",
@@ -147,6 +160,110 @@ class RunnerMixin:
             messagebox.showerror("Could Not Run File", message, parent=self.root)
             return
 
+    def _compile_cpp_file(self, path: Path, compiler: str) -> None:
+        self._compile_in_progress = True
+        self.run_button.configure(state=tk.DISABLED, text="Compiling...")
+        self.stop_button.configure(state=tk.DISABLED)
+        self.status.set(f"Compiling {path.name}...")
+
+        def compile_source() -> None:
+            try:
+                temp_dir = tempfile.TemporaryDirectory(prefix="gravel-run-")
+            except OSError as error:
+                try:
+                    self.root.after(
+                        0,
+                        lambda error=error: self._finish_cpp_compile_error(
+                            str(error), None
+                        ),
+                    )
+                except tk.TclError:
+                    pass
+                return
+            binary_name = f"program.exe" if sys.platform == "win32" else "program"
+            binary_path = Path(temp_dir.name) / binary_name
+            try:
+                result = subprocess.run(
+                    cpp_command(path, binary_path, compiler),
+                    cwd=str(path.parent),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                )
+            except OSError as error:
+                try:
+                    self.root.after(
+                        0,
+                        lambda error=error: self._finish_cpp_compile_error(
+                            str(error), temp_dir
+                        ),
+                    )
+                except tk.TclError:
+                    temp_dir.cleanup()
+                return
+            try:
+                self.root.after(
+                    0,
+                    lambda result=result, binary_path=binary_path, temp_dir=temp_dir:
+                        self._finish_cpp_compile(path, result, binary_path, temp_dir),
+                )
+            except tk.TclError:
+                temp_dir.cleanup()
+
+        threading.Thread(target=compile_source, daemon=True).start()
+
+    def _finish_cpp_compile_error(
+        self, error: str, temp_dir: tempfile.TemporaryDirectory | None
+    ) -> None:
+        self._compile_in_progress = False
+        if temp_dir is not None:
+            temp_dir.cleanup()
+        self._finish_cpp_run(f"Could not compile C/C++ source: {error}\n", 1)
+
+    def _finish_cpp_compile(
+        self,
+        path: Path,
+        result: subprocess.CompletedProcess[str],
+        binary_path: Path,
+        temp_dir: tempfile.TemporaryDirectory,
+    ) -> None:
+        self._compile_in_progress = False
+        compiler_output = (result.stdout or "") + (result.stderr or "")
+        if compiler_output:
+            self._append_output(compiler_output)
+            self.last_run_output = (self.last_run_output + compiler_output)[-20000:]
+            self.last_run_error = (self.last_run_error + (result.stderr or ""))[-20000:]
+        if result.returncode != 0:
+            temp_dir.cleanup()
+            self._finish_cpp_run("", result.returncode)
+            return
+        self._append_output("Compilation succeeded. Running program...\n\n")
+        try:
+            self._start_process([str(binary_path)], path, temp_dir)
+        except (FileNotFoundError, OSError) as error:
+            temp_dir.cleanup()
+            self._finish_cpp_run(f"Could not start {path.name}: {error}\n", 1)
+
+    def _start_process(
+        self,
+        command: list[str],
+        path: Path,
+        temp_dir: tempfile.TemporaryDirectory | None = None,
+    ) -> None:
+        self.process = subprocess.Popen(
+            command,
+            cwd=str(path.parent),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        self._run_temp_dir = temp_dir
         process = self.process
         self._stop_requested = False
         self.run_button.configure(state=tk.DISABLED, text="Running...")
@@ -157,15 +274,45 @@ class RunnerMixin:
         self.status.set(f"Running {path.name}...")
 
         def read_output() -> None:
-            if process.stdout is not None:
-                while True:
-                    character = process.stdout.read(1)
-                    if not character:
-                        break
-                    self.output_queue.put(("output", character))
+            readers: list[threading.Thread] = []
+            for stream, kind in (
+                (process.stdout, "output"),
+                (process.stderr, "stderr"),
+            ):
+                if stream is None:
+                    continue
+
+                def read_stream(source=stream, output_kind=kind) -> None:
+                    while True:
+                        character = source.read(1)
+                        if not character:
+                            break
+                        self.output_queue.put((output_kind, character))
+
+                reader = threading.Thread(target=read_stream, daemon=True)
+                reader.start()
+                readers.append(reader)
+            for reader in readers:
+                reader.join()
             self.output_queue.put(("done", process.wait()))
 
         threading.Thread(target=read_output, daemon=True).start()
+
+    def _finish_cpp_run(self, message: str, return_code: int) -> None:
+        if message:
+            self._append_output(message)
+            self.last_run_output = (self.last_run_output + message)[-20000:]
+            self.last_run_error = (self.last_run_error + message)[-20000:]
+        if return_code != 0 and not self.last_run_output.strip():
+            self.last_run_output = f"Program exited with code {return_code} without output."
+        self.run_button.configure(state=tk.NORMAL, text="Run ▶")
+        self.stop_button.configure(state=tk.DISABLED)
+        self.status.set(
+            "Finished successfully" if return_code == 0
+            else f"Program exited with errors (exit code {return_code})"
+        )
+        if return_code != 0:
+            self.fix_run_button.pack(side=tk.LEFT, padx=5)
 
     def _open_in_browser(self, path: Path) -> None:
         try:
@@ -193,6 +340,10 @@ class RunnerMixin:
                 kind, value = self.output_queue.get_nowait()
                 if kind == "output":
                     output_text.append(str(value))
+                elif kind == "stderr":
+                    error_text = str(value)
+                    output_text.append(error_text)
+                    self.last_run_error = (self.last_run_error + error_text)[-20000:]
                 else:
                     if output_text:
                         chunk = "".join(output_text)
@@ -205,12 +356,23 @@ class RunnerMixin:
                     self.stop_button.configure(state=tk.DISABLED)
                     self.stdin_entry.configure(state=tk.DISABLED)
                     self.stdin_send_button.configure(state=tk.DISABLED)
-                    if self._stop_requested:
+                    temp_dir = self._run_temp_dir
+                    self._run_temp_dir = None
+                    if temp_dir is not None:
+                        temp_dir.cleanup()
+                    stopped = self._stop_requested
+                    if stopped:
                         self.status.set("Stopped by user")
                     elif value == 0:
                         self.status.set("Finished successfully")
                     else:
                         self.status.set(f"Program exited with errors (exit code {value})")
+                        if not self.last_run_output.strip():
+                            self.last_run_output = (
+                                f"Program exited with code {value} without output."
+                            )
+                    if not stopped and value != 0:
+                        self.fix_run_button.pack(side=tk.LEFT, padx=5)
                     self._stop_requested = False
         except queue.Empty:
             if output_text:
@@ -249,5 +411,17 @@ class RunnerMixin:
         if self._syntax_after_id is not None:
             self.root.after_cancel(self._syntax_after_id)
         if self.process is not None:
-            self.process.terminate()
+            process = self.process
+            process.terminate()
+            temp_dir = self._run_temp_dir
+            self._run_temp_dir = None
+            if temp_dir is not None:
+                def clean_temp_dir() -> None:
+                    process.wait()
+                    temp_dir.cleanup()
+
+                threading.Thread(target=clean_temp_dir, daemon=True).start()
+        elif self._run_temp_dir is not None:
+            self._run_temp_dir.cleanup()
+            self._run_temp_dir = None
         self.root.destroy()
