@@ -1,31 +1,30 @@
 from __future__ import annotations
-import io
 import json
 import keyword
 import queue
 import re
 import subprocess
+import tempfile
 import tkinter as tk
-import token
-import tokenize
+import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
-from tkinter import font as tkfont
 
 from ai.assistant import AIAssistantMixin
 from runners import RunnerMixin
 from ui.file_tree import FileTreeMixin
 
 class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
-    VERSION = "1.0.3"
+    VERSION = "1.0.4"
     SUPPORTED_FILETYPES = (
-        ("Supported files", "*.py *.html *.htm *.css *.json *.js *.mjs *.cjs *.javascript *.java"),
+        ("Supported files", "*.py *.html *.htm *.css *.json *.js *.mjs *.cjs *.javascript *.java *.c *.cc *.cpp *.cxx"),
         ("Python files", "*.py"),
         ("HTML files", "*.html *.htm"),
         ("CSS files", "*.css"),
         ("JSON files", "*.json"),
         ("JavaScript files", "*.js *.mjs *.cjs *.javascript"),
         ("Java files", "*.java"),
+        ("C/C++ files", "*.c *.cc *.cpp *.cxx"),
         ("All files", "*.*"),
     )
     FILE_ICONS = {
@@ -40,6 +39,47 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         ".javascript": "javascript",
         ".java": "java",
     }
+    LANGUAGE_KEYWORDS = {
+        "javascript": set(
+            "as async await break case catch class const continue debugger default delete do "
+            "else export extends finally for from function if import in instanceof let new "
+            "of return static super switch this throw try typeof var void while with yield"
+        .split()),
+        "java": set(
+            "abstract assert boolean break byte case catch char class const continue default "
+            "do double else enum extends final finally float for if implements import instanceof "
+            "int interface long native new package private protected public return short static "
+            "strictfp super switch synchronized this throw throws transient try void volatile while"
+        .split()),
+        "cpp": set(
+            "alignas alignof and asm auto bool break case catch char class const constexpr "
+            "continue decltype default delete do double else enum explicit extern false float "
+            "for friend goto if inline int long namespace new noexcept not nullptr operator "
+            "private protected public register reinterpret_cast return short signed sizeof static "
+            "struct switch template this throw true try typedef typeid typename union unsigned "
+            "using virtual void volatile wchar_t while"
+        .split()),
+    }
+    PYTHON_SYNTAX_PATTERN = re.compile(
+        r"(?P<comment>\#[^\n]*)"
+        r"|(?P<string>\"\"\"[\s\S]*?\"\"\"|'''[\s\S]*?'''|"
+        r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*')"
+        r"|(?P<number>\b(?:0[xX][0-9a-fA-F]+|0[bB][01]+|"
+        r"(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)[jJ]?)"
+        r"|(?P<identifier>[A-Za-z_][A-Za-z0-9_]*)"
+        r"|(?P<operator>==|!=|<=|>=|//|\*\*|:=|->|"
+        r"[+\-*/%=&|^~!<>?:.]|[(){}\[\],;@])"
+    )
+    SYNTAX_PATTERN = re.compile(
+        r"(?P<comment>//[^\n]*|/\*[\s\S]*?\*/)"
+        r"|(?P<string>\"\"\"[\s\S]*?\"\"\"|'''[\s\S]*?'''|"
+        r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)"
+        r"|(?P<number>\b(?:0[xX][0-9a-fA-F]+|0[bB][01]+|"
+        r"(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)[uUlLfF]*)"
+        r"|(?P<identifier>[A-Za-z_$][A-Za-z0-9_$]*)"
+        r"|(?P<operator>==|!=|<=|>=|&&|\|\||\+\+|--|->|=>|"
+        r"[+\-*/%=&|^~!<>?:.]|[(){}\[\],;])"
+    )
     THEMES = {
         "Light": {
             "background": "#ffffff", "foreground": "#202124", "selection": "#cde8ff",
@@ -95,6 +135,9 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         self.output_queue: queue.Queue[tuple[str, str | int]] = queue.Queue()
 
         self.last_run_output = ""
+        self.last_run_error = ""
+        self._run_temp_dir: tempfile.TemporaryDirectory | None = None
+        self._compile_in_progress = False
 
         self.dirty = False
 
@@ -108,13 +151,23 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.settings_path = Path.home() / ".gravel" / "settings.json"
 
-        initial_theme, self.custom_theme_colors, self.recent_paths = self._load_settings()
+        (
+            initial_theme,
+            self.custom_theme_colors,
+            self.recent_paths,
+            self.editor_font_family,
+            self.editor_font_size,
+        ) = self._load_settings()
 
         self.theme_var = tk.StringVar(value=initial_theme)
 
         self.tab_size_var = tk.IntVar(value=4)
 
         self.ai_apply_edits_var = tk.BooleanVar(value=True)
+        self._active_palette = {
+            **self.THEMES[initial_theme],
+            **self.custom_theme_colors.get(initial_theme, {}),
+        }
 
         images_folder = Path(__file__).resolve().parent.parent / "images"
 
@@ -245,6 +298,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
             )
 
         settings_menu.add_cascade(label="Tab Size", menu=tab_size_menu)
+        settings_menu.add_command(label="Editor Font...", command=self._edit_font_settings)
 
         theme_menu.add_separator()
 
@@ -288,7 +342,9 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         return theme_menu
 
-    def _load_settings(self) -> tuple[str, dict[str, dict[str, str]], list[str]]:
+    def _load_settings(
+        self,
+    ) -> tuple[str, dict[str, dict[str, str]], list[str], str, int]:
 
         try:
 
@@ -298,7 +354,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         except FileNotFoundError:
 
-            return "Light", {}, []
+            return "Light", {}, [], "Consolas", 11
 
         except (json.JSONDecodeError, UnicodeError) as error:
 
@@ -308,7 +364,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             )
 
-            return "Light", {}, []
+            return "Light", {}, [], "Consolas", 11
 
         except OSError as error:
 
@@ -318,7 +374,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             )
 
-            return "Light", {}, []
+            return "Light", {}, [], "Consolas", 11
 
         if not isinstance(settings, dict):
 
@@ -332,7 +388,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             )
 
-            return "Light", {}, []
+            return "Light", {}, [], "Consolas", 11
 
         theme = settings.get("theme")
 
@@ -398,7 +454,14 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             ][:8]
 
-        return theme, custom_colors, recent_paths
+        font_family = settings.get("editor_font_family", "Consolas")
+        if not isinstance(font_family, str) or not font_family.strip():
+            font_family = "Consolas"
+        font_size = settings.get("editor_font_size", 11)
+        if not isinstance(font_size, int) or isinstance(font_size, bool):
+            font_size = 11
+        font_size = min(max(font_size, 6), 48)
+        return theme, custom_colors, recent_paths, font_family, font_size
 
     def _save_settings(self) -> bool:
 
@@ -409,7 +472,8 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
             "custom_colors": self.custom_theme_colors,
 
             "recent_files": self.recent_paths,
-
+            "editor_font_family": self.editor_font_family,
+            "editor_font_size": self.editor_font_size,
         }
 
         try:
@@ -796,6 +860,15 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.ai_toggle_button.pack(side=tk.LEFT, padx=5)
 
+        self.fix_run_button = ttk.Button(
+            toolbar,
+            text="Fix with GRAVEL AI",
+            command=self._fix_last_run_with_ai,
+            style="Accent.TButton",
+        )
+        self.fix_run_button.pack(side=tk.LEFT, padx=5)
+        self.fix_run_button.pack_forget()
+
         ttk.Label(toolbar, text=f"Version {self.VERSION}").pack(
 
             side=tk.RIGHT, padx=(8, 4)
@@ -880,7 +953,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         editor_frame.rowconfigure(0, weight=1)
 
-        editor_frame.columnconfigure(0, weight=1)
+        editor_frame.columnconfigure(1, weight=1)
 
         self.editor = tk.Text(
 
@@ -890,7 +963,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             undo=True,
 
-            font=("Consolas", 11),
+            font=(self.editor_font_family, self.editor_font_size),
 
             padx=8,
 
@@ -900,19 +973,34 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self._apply_tab_size()
 
-        self.editor.grid(row=0, column=0, sticky="nsew")
+        self.line_numbers = tk.Canvas(
+            editor_frame,
+            width=42,
+            bd=0,
+            highlightthickness=0,
+            background="#f3f4f6",
+        )
+        self.line_numbers.grid(row=0, column=0, sticky="ns")
+        self.editor.grid(row=0, column=1, sticky="nsew")
 
         self.editor.bind("<Tab>", self._insert_tab_spaces)
+        self.editor.bind("<KeyPress>", self._auto_close_pair)
 
-        editor_y = ttk.Scrollbar(editor_frame, orient=tk.VERTICAL, command=self.editor.yview)
-
-        editor_y.grid(row=0, column=1, sticky="ns")
+        self.editor_y = ttk.Scrollbar(
+            editor_frame, orient=tk.VERTICAL, command=self.editor.yview
+        )
+        self.editor_y.grid(row=0, column=2, sticky="ns")
 
         editor_x = ttk.Scrollbar(editor_frame, orient=tk.HORIZONTAL, command=self.editor.xview)
+        editor_x.grid(row=1, column=1, sticky="ew")
 
-        editor_x.grid(row=1, column=0, sticky="ew")
-
-        self.editor.configure(yscrollcommand=editor_y.set, xscrollcommand=editor_x.set)
+        self.editor.configure(
+            yscrollcommand=self._editor_scroll_changed,
+            xscrollcommand=editor_x.set,
+        )
+        editor_frame.columnconfigure(1, weight=1)
+        editor_frame.bind("<Configure>", lambda _event: self._redraw_line_numbers())
+        self.editor.bind("<Configure>", lambda _event: self._redraw_line_numbers())
 
         self.editor.bind("<<Modified>>", self._editor_modified)
 
@@ -1250,6 +1338,123 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.editor.configure(tabs=(space_width,))
 
+    def _editor_scroll_changed(self, first: str, last: str) -> None:
+        self.editor_y.set(first, last)
+        self._redraw_line_numbers()
+
+    def _redraw_line_numbers(self) -> None:
+        if not hasattr(self, "line_numbers") or not self.line_numbers.winfo_exists():
+            return
+        self.line_numbers.delete("all")
+        line_count = int(self.editor.index("end-1c").split(".")[0])
+        number_font = tkfont.Font(root=self.root, font=self.editor.cget("font"))
+        self.line_numbers.configure(
+            width=max(42, number_font.measure("9" * len(str(line_count))) + 12)
+        )
+        line_number = int(self.editor.index("@0,0").split(".")[0])
+        height = self.editor.winfo_height()
+        while True:
+            position = self.editor.dlineinfo(f"{line_number}.0")
+            if position is None or position[1] >= height:
+                break
+            self.line_numbers.create_text(
+                self.line_numbers.winfo_width() - 6,
+                position[1] + position[3] / 2,
+                anchor=tk.E,
+                text=str(line_number),
+                fill=self._active_palette["muted"],
+                font=number_font,
+            )
+            line_number += 1
+
+    def _auto_close_pair(self, event: tk.Event) -> str | None:
+        pairs = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'"}
+        closing = pairs.get(event.char)
+        if closing is None:
+            return None
+        next_character = self.editor.get(tk.INSERT, f"{tk.INSERT} + 1 chars")
+        if event.char in {'"', "'"} and next_character == closing:
+            self.editor.mark_set(tk.INSERT, f"{tk.INSERT} + 1 chars")
+            return "break"
+        selection = self.editor.tag_ranges(tk.SEL)
+        if selection:
+            start, end = selection[0], selection[1]
+            selected_text = self.editor.get(start, end)
+            self.editor.delete(start, end)
+            self.editor.insert(start, event.char + selected_text + closing)
+            self.editor.mark_set(tk.INSERT, f"{start} + {len(selected_text) + 1} chars")
+        else:
+            self.editor.insert(tk.INSERT, event.char + closing)
+            self.editor.mark_set(tk.INSERT, f"{tk.INSERT} - 1 chars")
+        return "break"
+
+    def _edit_font_settings(self) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Editor Font")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        dialog.columnconfigure(1, weight=1)
+
+        family_var = tk.StringVar(value=self.editor_font_family)
+        size_var = tk.IntVar(value=self.editor_font_size)
+        ttk.Label(dialog, text="Font family").grid(
+            row=0, column=0, padx=(12, 6), pady=(12, 6), sticky=tk.W
+        )
+        family_box = ttk.Combobox(
+            dialog,
+            textvariable=family_var,
+            values=sorted(tkfont.families(self.root)),
+            width=28,
+        )
+        family_box.grid(row=0, column=1, padx=(6, 12), pady=(12, 6), sticky="ew")
+        ttk.Label(dialog, text="Font size").grid(
+            row=1, column=0, padx=(12, 6), pady=6, sticky=tk.W
+        )
+        ttk.Spinbox(dialog, from_=6, to=48, textvariable=size_var, width=8).grid(
+            row=1, column=1, padx=(6, 12), pady=6, sticky=tk.W
+        )
+
+        def apply_font() -> None:
+            family = family_var.get().strip()
+            try:
+                size = int(size_var.get())
+            except (tk.TclError, ValueError):
+                messagebox.showerror(
+                    "Editor Font", "Font size must be a number from 6 to 48.", parent=dialog
+                )
+                return
+            if not family or not 6 <= size <= 48:
+                messagebox.showerror(
+                    "Editor Font",
+                    "Choose a font family and a font size from 6 to 48.",
+                    parent=dialog,
+                )
+                return
+            previous_family = self.editor_font_family
+            previous_size = self.editor_font_size
+            self.editor_font_family = family
+            self.editor_font_size = size
+            self.editor.configure(font=(family, size))
+            self._apply_tab_size()
+            self._redraw_line_numbers()
+            if not self._save_settings():
+                self.editor_font_family = previous_family
+                self.editor_font_size = previous_size
+                self.editor.configure(font=(previous_family, previous_size))
+                self._apply_tab_size()
+                self._redraw_line_numbers()
+                return
+            dialog.destroy()
+
+        buttons = ttk.Frame(dialog)
+        buttons.grid(row=2, column=0, columnspan=2, pady=(6, 12))
+        ttk.Button(buttons, text="Apply", command=apply_font).pack(side=tk.LEFT, padx=4)
+        ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=4)
+        dialog.bind("<Return>", lambda _event: apply_font())
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        dialog.grab_set()
+        family_box.focus_set()
+
     def _insert_tab_spaces(self, _event: tk.Event) -> str:
 
         self.editor.insert(tk.INSERT, " " * self.tab_size_var.get())
@@ -1297,6 +1502,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
             self.editor.edit_modified(False)
 
             self._schedule_syntax_highlighting()
+            self._redraw_line_numbers()
 
             if self._autosave_after_id is not None:
 
@@ -1320,7 +1526,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.editor.edit_modified(False)
 
-        self._highlight_syntax()
+        self._redraw_line_numbers()
 
         self.dirty = False
 
@@ -1329,12 +1535,10 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
     def _set_theme(self, theme_name: str) -> None:
 
         palette = {
-
             **self.THEMES[theme_name],
-
             **self.custom_theme_colors.get(theme_name, {}),
-
         }
+        self._active_palette = palette
 
         self.theme_var.set(theme_name)
 
@@ -1701,6 +1905,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
             )
 
         self.editor.configure(background=palette["background"], selectbackground=palette["selection"])
+        self.line_numbers.configure(background=palette["background"])
 
         self.root.option_add("*TCombobox*Listbox.background", palette["field"])
 
@@ -1719,6 +1924,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
             self.editor.tag_configure(f"syntax_{tag}", foreground=palette[tag])
 
         self._highlight_syntax()
+        self._redraw_line_numbers()
 
     def _draw_welcome(self, event: tk.Event) -> None:
 
@@ -1942,52 +2148,44 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             self.editor.tag_remove(f"syntax_{tag}", "1.0", tk.END)
 
-        if self.current_file is not None and self.current_file.suffix.lower() != ".py":
-
-            return
-
         source = self.editor.get("1.0", "end-1c")
+        extension = self.current_file.suffix.lower() if self.current_file else ".py"
+        pattern = (
+            self.PYTHON_SYNTAX_PATTERN if extension == ".py" else self.SYNTAX_PATTERN
+        )
+        language = (
+            "javascript"
+            if extension in {".js", ".mjs", ".cjs", ".javascript"}
+            else "java"
+            if extension == ".java"
+            else "cpp"
+            if extension in {".c", ".cc", ".cpp", ".cxx"}
+            else "python"
+        )
+        keywords = self.LANGUAGE_KEYWORDS.get(language, set())
+        constants = {
+            "python": {"True", "False", "None"},
+            "javascript": {"true", "false", "null", "undefined", "NaN", "Infinity"},
+            "java": {"true", "false", "null"},
+            "cpp": {"true", "false", "nullptr"},
+        }.get(language, set())
 
-        try:
-
-            for item in tokenize.generate_tokens(io.StringIO(source).readline):
-
-                category = None
-
-                if item.type == token.NAME:
-
-                    if item.string in {"True", "False", "None"}:
-
-                        category = "constant"
-
-                    elif keyword.iskeyword(item.string):
-
-                        category = "keyword"
-
-                elif item.type == token.STRING:
-
-                    category = "string"
-
-                elif item.type == token.COMMENT:
-
-                    category = "comment"
-
-                elif item.type == token.NUMBER:
-
-                    category = "number"
-
-                elif item.type == token.OP:
-
-                    category = "operator"
-
-                if category is not None:
-
-                    start = f"{item.start[0]}.{item.start[1]}"
-
-                    end = f"{item.end[0]}.{item.end[1]}"
-
-                    self.editor.tag_add(f"syntax_{category}", start, end)
-
-        except (IndentationError, SyntaxError, tokenize.TokenError):
-
-            pass
+        for item in pattern.finditer(source):
+            category = item.lastgroup
+            if category == "identifier":
+                word = item.group()
+                if word in constants:
+                    category = "constant"
+                elif (
+                    keyword.iskeyword(word)
+                    if language == "python"
+                    else word in keywords
+                ):
+                    category = "keyword"
+                else:
+                    continue
+            if category in self.SYNTAX_TAGS:
+                start = f"1.0 + {item.start()} chars"
+                end = f"1.0 + {item.end()} chars"
+                self.editor.tag_add(f"syntax_{category}", start, end)
+        self._redraw_line_numbers()
