@@ -1,7 +1,6 @@
-# GRAVEL 1.0.5 - AI Model Upgrade Update
+# GRAVEL 1.0.6 - Visual Polish
 
-- Added **System Prompt** customization for the AI assistant — edit the system instruction sent to Ollama for chat and file edits
-- Added **Temperature** slider (0.0–2.0) to control AI creativity/randomness, sent with every Ollama request
-- Added **AI chat history persistence** — conversation history is saved between launches and restored on startup
-- Added **Clear History** button to the AI panel to reset the conversation
-- Settings now save and restore AI system prompt, temperature, and chat history
+- Added an active-line highlight and a clearer, theme-aware line-number gutter in the editor
+- Updated the AI conversation to show separate message cards, with a red outline around assistant responses
+- Improved spacing, contrast, and visual separation in the editor and AI panel
+- GRAVEL now starts in Light mode; you can still switch themes from the View menu
