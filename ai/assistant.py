@@ -4,6 +4,7 @@ import json
 import re
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 import urllib.request
 
 class AIAssistantMixin:
@@ -168,14 +169,95 @@ class AIAssistantMixin:
             self._refresh_ai_models()
 
     def _append_ai_message(self, speaker: str, message: str) -> None:
-
-        self.ai_chat.configure(state=tk.NORMAL)
-
-        self.ai_chat.insert(tk.END, f"{speaker}:\n{message.strip()}\n\n")
-
+        body_label = self._create_ai_message_card(speaker)
+        body_label.configure(state=tk.NORMAL)
+        body_label.insert("1.0", message.strip())
+        body_label.configure(state=tk.DISABLED)
+        self._size_ai_message_card(body_label)
         self.ai_chat.see(tk.END)
 
+    def _create_ai_message_card(self, speaker: str) -> tk.Text:
+        is_assistant = speaker == "Assistant"
+        palette = self._active_palette
+        card_background = palette["panel"] if is_assistant else palette["surface"]
+        card = tk.Frame(
+            self.ai_chat,
+            background=card_background,
+            highlightbackground=(
+                self.AI_RESPONSE_RED if is_assistant else palette["border"]
+            ),
+            highlightthickness=2 if is_assistant else 1,
+        )
+        card.pack_propagate(False)
+        text_font = tkfont.Font(root=self.root, font=("Segoe UI", 10))
+        card_width = max(140, self.ai_chat.winfo_width() - 24)
+        body_width = max(12, (card_width - 24) // max(1, text_font.measure("0")))
+        role_label = tk.Label(
+            card,
+            text=speaker.upper(),
+            background=card_background,
+            foreground=(
+                self.AI_RESPONSE_RED if is_assistant else palette["muted"]
+            ),
+            font=("Segoe UI", 9, "bold"),
+            anchor=tk.W,
+            padx=10,
+            pady=4,
+        )
+        role_label.pack(fill=tk.X)
+        body_label = tk.Text(
+            card,
+            wrap=tk.WORD,
+            height=1,
+            width=body_width,
+            state=tk.DISABLED,
+            background=card_background,
+            foreground=palette["foreground"],
+            font=("Segoe UI", 10),
+            borderwidth=0,
+            highlightthickness=0,
+            padx=10,
+            pady=4,
+            selectbackground=palette["accent"],
+            selectforeground=palette["accent_foreground"],
+        )
+        body_label.pack(fill=tk.X)
+        card.configure(
+            width=card_width,
+            height=role_label.winfo_reqheight() + body_label.winfo_reqheight() + 8,
+        )
+        for widget in (card, role_label, body_label):
+            widget.bind("<MouseWheel>", self._scroll_ai_chat)
+        self._ai_chat_cards.append((card, role_label, body_label, speaker))
+        self.ai_chat.configure(state=tk.NORMAL)
+        if self._ai_chat_cards[:-1]:
+            self.ai_chat.insert(tk.END, "\n")
+        self.ai_chat.window_create(
+            tk.END,
+            window=card,
+            align=tk.TOP,
+            padx=2,
+            pady=3,
+            stretch=True,
+        )
+        self.ai_chat.insert(tk.END, "\n")
         self.ai_chat.configure(state=tk.DISABLED)
+        return body_label
+
+    def _size_ai_message_card(self, body: tk.Text) -> None:
+        for card, role_label, card_body, _speaker in self._ai_chat_cards:
+            if card_body is body:
+                display_lines = body.count("1.0", "end-1c", "displaylines")
+                line_count = display_lines[0] if display_lines else 1
+                body.configure(height=max(1, line_count))
+                card.configure(
+                    height=role_label.winfo_reqheight() + body.winfo_reqheight() + 8
+                )
+                return
+
+    def _scroll_ai_chat(self, event: tk.Event) -> str:
+        self.ai_chat.yview_scroll(-int(event.delta / 120), "units")
+        return "break"
 
     def _submit_ai_prompt(self, _event: tk.Event | None = None) -> str:
 
@@ -454,28 +536,25 @@ class AIAssistantMixin:
         self._explain_last_run()
 
     def _begin_ai_stream(self) -> None:
-        self.ai_chat.configure(state=tk.NORMAL)
-        self.ai_chat.insert(tk.END, "Assistant:\n")
-        self.ai_chat.see(tk.END)
-        self.ai_chat.configure(state=tk.DISABLED)
+        self._ai_stream_label = self._create_ai_message_card("Assistant")
         self._ai_stream_active = True
 
     def _append_ai_stream_chunk(self, chunk: str) -> None:
         if not getattr(self, "_ai_stream_active", False):
             return
-        self.ai_chat.configure(state=tk.NORMAL)
-        self.ai_chat.insert(tk.END, chunk)
+        if self._ai_stream_label is not None:
+            self._ai_stream_label.configure(state=tk.NORMAL)
+            self._ai_stream_label.insert(tk.END, chunk)
+            self._ai_stream_label.configure(state=tk.DISABLED)
+            self._size_ai_message_card(self._ai_stream_label)
         self.ai_chat.see(tk.END)
-        self.ai_chat.configure(state=tk.DISABLED)
 
     def _finish_ai_stream(self) -> None:
         if not getattr(self, "_ai_stream_active", False):
             return
-        self.ai_chat.configure(state=tk.NORMAL)
-        self.ai_chat.insert(tk.END, "\n\n")
-        self.ai_chat.see(tk.END)
-        self.ai_chat.configure(state=tk.DISABLED)
         self._ai_stream_active = False
+        self._ai_stream_label = None
+        self.ai_chat.see(tk.END)
 
     def _request_ai(self, prompt: str, action: str) -> None:
 
@@ -798,13 +877,15 @@ class AIAssistantMixin:
     def _clear_ai_history(self) -> None:
 
         self.ai_history.clear()
-
         self.ai_chat.configure(state=tk.NORMAL)
-
         self.ai_chat.delete("1.0", tk.END)
-
         self.ai_chat.configure(state=tk.DISABLED)
-
+        for card, _role_label, _body_label, _speaker in self._ai_chat_cards:
+            if card.winfo_exists():
+                card.destroy()
+        self._ai_chat_cards.clear()
+        self._ai_stream_label = None
+        self._ai_stream_active = False
         self.ai_status.set("AI conversation history cleared.")
 
         self._save_settings()
