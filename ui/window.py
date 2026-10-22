@@ -15,7 +15,7 @@ from runners import RunnerMixin
 from ui.file_tree import FileTreeMixin
 
 class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
-    VERSION = "1.0.5"
+    VERSION = "1.0.6"
     SUPPORTED_FILETYPES = (
         ("Supported files", "*.py *.html *.htm *.css *.json *.js *.mjs *.cjs *.javascript *.java *.c *.cc *.cpp *.cxx"),
         ("Python files", "*.py"),
@@ -107,6 +107,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         },
     }
     SYNTAX_TAGS = ("keyword", "constant", "string", "comment", "number", "operator")
+    AI_RESPONSE_RED = "#c9363e"
     CUSTOMIZABLE_COLORS = (
         ("background", "Background"),
         ("keyword", "Keyword"),
@@ -169,6 +170,8 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         self.ai_history: list[tuple[str, str]] = []
         if saved_ai_history:
             self.ai_history = [(str(speaker), str(text)) for speaker, text in saved_ai_history]
+        self._ai_chat_cards: list[tuple[tk.Frame, tk.Label, tk.Text, str]] = []
+        self._ai_stream_label: tk.Text | None = None
 
         self.tab_size_var = tk.IntVar(value=4)
 
@@ -397,23 +400,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             return "Light", {}, [], "Consolas", 11
 
-        theme = settings.get("theme")
-
-        if not isinstance(theme, str) or theme not in self.THEMES:
-
-            if "theme" in settings:
-
-                messagebox.showwarning(
-
-                    "Settings",
-
-                    "Saved theme is invalid. Using the Light theme.",
-
-                    parent=self.root,
-
-                )
-
-            theme = "Light"
+        theme = "Light"
 
         custom_colors: dict[str, dict[str, str]] = {}
 
@@ -497,8 +484,6 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
     def _save_settings(self) -> bool:
 
         settings = {
-
-            "theme": self.theme_var.get(),
 
             "custom_colors": self.custom_theme_colors,
 
@@ -999,9 +984,17 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             font=(self.editor_font_family, self.editor_font_size),
 
-            padx=8,
+            padx=12,
 
             pady=8,
+
+            borderwidth=0,
+
+            highlightthickness=1,
+
+            spacing1=1,
+
+            spacing3=1,
 
         )
 
@@ -1019,6 +1012,8 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.editor.bind("<Tab>", self._insert_tab_spaces)
         self.editor.bind("<KeyPress>", self._auto_close_pair)
+        self.editor.bind("<KeyRelease>", self._update_current_line)
+        self.editor.bind("<ButtonRelease-1>", self._update_current_line)
 
         self.editor_y = ttk.Scrollbar(
             editor_frame, orient=tk.VERTICAL, command=self.editor.yview
@@ -1273,17 +1268,21 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         ).grid(row=7, column=0, sticky="ew", pady=(0, 6))
 
         self.ai_chat = tk.Text(
-
-            self.ai_panel, wrap=tk.WORD, state=tk.DISABLED, font=("Segoe UI", 10), padx=7, pady=7
-
+            self.ai_panel,
+            wrap=tk.WORD,
+            state=tk.DISABLED,
+            font=("Segoe UI", 10),
+            padx=7,
+            pady=7,
+            borderwidth=0,
+            highlightthickness=1,
         )
-
         self.ai_chat.grid(row=8, column=0, sticky="nsew")
 
-        ai_chat_scroll = ttk.Scrollbar(self.ai_panel, orient=tk.VERTICAL, command=self.ai_chat.yview)
-
+        ai_chat_scroll = ttk.Scrollbar(
+            self.ai_panel, orient=tk.VERTICAL, command=self.ai_chat.yview
+        )
         ai_chat_scroll.grid(row=8, column=1, sticky="ns")
-
         self.ai_chat.configure(yscrollcommand=ai_chat_scroll.set)
 
         ai_prompt_row = ttk.Frame(self.ai_panel)
@@ -1452,12 +1451,28 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         self.editor_y.set(first, last)
         self._redraw_line_numbers()
 
+    def _update_current_line(self, _event: tk.Event | None = None) -> None:
+        if not hasattr(self, "editor"):
+            return
+        self.editor.tag_remove("current_line", "1.0", tk.END)
+        self.editor.tag_add(
+            "current_line",
+            self.editor.index("insert linestart"),
+            self.editor.index("insert lineend +1c"),
+        )
+        self.editor.tag_lower("current_line")
+        self._redraw_line_numbers()
+
     def _redraw_line_numbers(self) -> None:
         if not hasattr(self, "line_numbers") or not self.line_numbers.winfo_exists():
             return
         self.line_numbers.delete("all")
         line_count = int(self.editor.index("end-1c").split(".")[0])
         number_font = tkfont.Font(root=self.root, font=self.editor.cget("font"))
+        active_number_font = tkfont.Font(root=self.root, font=self.editor.cget("font"))
+        active_number_font.configure(weight="bold")
+        active_line = int(self.editor.index("insert").split(".")[0])
+        palette = self._active_palette
         self.line_numbers.configure(
             width=max(42, number_font.measure("9" * len(str(line_count))) + 12)
         )
@@ -1472,10 +1487,17 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
                 position[1] + position[3] / 2,
                 anchor=tk.E,
                 text=str(line_number),
-                fill=self._active_palette["muted"],
-                font=number_font,
+                fill=palette["accent"] if line_number == active_line else palette["muted"],
+                font=active_number_font if line_number == active_line else number_font,
             )
             line_number += 1
+        self.line_numbers.create_line(
+            self.line_numbers.winfo_width() - 1,
+            0,
+            self.line_numbers.winfo_width() - 1,
+            height,
+            fill=palette["border"],
+        )
 
     def _auto_close_pair(self, event: tk.Event) -> str | None:
         pairs = {"(": ")", "[": "]", "{": "}", '"': '"', "'": "'"}
@@ -1635,6 +1657,8 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         self.editor.insert("1.0", text)
 
         self.editor.edit_modified(False)
+
+        self._update_current_line()
 
         self._redraw_line_numbers()
 
@@ -1994,7 +2018,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             )
 
-        for widget in (self.editor, self.output, self.ai_chat):
+        for widget in (self.editor, self.output):
 
             widget.configure(
 
@@ -2014,8 +2038,36 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             )
 
-        self.editor.configure(background=palette["background"], selectbackground=palette["selection"])
-        self.line_numbers.configure(background=palette["background"])
+        self.editor.configure(
+            background=palette["background"],
+            selectbackground=palette["selection"],
+            highlightbackground=palette["border"],
+            highlightcolor=palette["accent"],
+        )
+        self.line_numbers.configure(background=palette["panel"])
+        self.ai_chat.configure(
+            background=palette["background"],
+            highlightbackground=palette["border"],
+            highlightcolor=palette["accent"],
+        )
+        for card, role_label, body_label, speaker in self._ai_chat_cards:
+            is_assistant = speaker == "Assistant"
+            card_background = palette["panel"] if is_assistant else palette["surface"]
+            card.configure(
+                background=card_background,
+                highlightbackground=self.AI_RESPONSE_RED if is_assistant else palette["border"],
+            )
+            role_label.configure(
+                background=card_background,
+                foreground=self.AI_RESPONSE_RED if is_assistant else palette["muted"],
+            )
+            body_label.configure(
+                background=card_background,
+                foreground=palette["foreground"],
+                insertbackground=palette["foreground"],
+                selectbackground=palette["accent"],
+                selectforeground=palette["accent_foreground"],
+            )
 
         self.root.option_add("*TCombobox*Listbox.background", palette["field"])
 
@@ -2033,7 +2085,10 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             self.editor.tag_configure(f"syntax_{tag}", foreground=palette[tag])
 
+        self.editor.tag_configure("current_line", background=palette["surface"])
+        self.editor.tag_lower("current_line")
         self._highlight_syntax()
+        self._update_current_line()
         self._redraw_line_numbers()
 
     def _draw_welcome(self, event: tk.Event) -> None:
