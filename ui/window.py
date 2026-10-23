@@ -15,7 +15,7 @@ from runners import RunnerMixin
 from ui.file_tree import FileTreeMixin
 
 class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
-    VERSION = "1.0.6"
+    VERSION = "1.0.7"
     SUPPORTED_FILETYPES = (
         ("Supported files", "*.py *.html *.htm *.css *.json *.js *.mjs *.cjs *.javascript *.java *.c *.cc *.cpp *.cxx"),
         ("Python files", "*.py"),
@@ -86,16 +86,24 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
             "keyword": "#7b2cbf", "constant": "#b42318", "string": "#18794e",
             "comment": "#777f8b", "number": "#a04b00", "operator": "#405a78",
             "panel": "#f3f4f6", "field": "#ffffff", "surface": "#f3f4f6",
-            "border": "#c9cdd3", "muted": "#68707c", "accent": "#c9363e",
-            "accent_hover": "#ad2931", "accent_foreground": "#ffffff",
+            "border": "#c9cdd3", "muted": "#68707c", "accent": "#0078d4",
+            "accent_hover": "#005a9e", "accent_foreground": "#ffffff",
         },
         "Dark": {
             "background": "#17181b", "foreground": "#e2e4e9", "selection": "#702b31",
             "keyword": "#cf8ef4", "constant": "#ff7b72", "string": "#a5d6a7",
             "comment": "#89929e", "number": "#f2b880", "operator": "#91b9e8",
             "panel": "#1e2024", "field": "#191a1e", "surface": "#292b30",
-            "border": "#393c43", "muted": "#a0a5af", "accent": "#e0444d",
-            "accent_hover": "#f0525b", "accent_foreground": "#ffffff",
+            "border": "#393c43", "muted": "#a0a5af", "accent": "#0078d4",
+            "accent_hover": "#2b88ff", "accent_foreground": "#ffffff",
+        },
+        "Fire": {
+            "background": "#4a0000", "foreground": "#ffebeb", "selection": "#ff4d4d",
+            "keyword": "#ff8080", "constant": "#ffc0c0", "string": "#ffa080",
+            "comment": "#8a5d5d", "number": "#ffda80", "operator": "#ff6060",
+            "panel": "#5a0000", "field": "#2a0000", "surface": "#6a0000",
+            "border": "#8a0000", "muted": "#b38b8b", "accent": "#ff0000",
+            "accent_hover": "#ff4d4d", "accent_foreground": "#ffffff",
         },
         "Forest": {
             "background": "#f1f5ef", "foreground": "#27352a", "selection": "#c9dfc7",
@@ -195,7 +203,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         }
 
-        welcome_logo = tk.PhotoImage(file=str(images_folder / "logo.png"))
+        welcome_logo = tk.PhotoImage(file=str(images_folder / "fire_logo.png"))
 
         self.welcome_logo_large = welcome_logo.subsample(3, 3)
 
@@ -400,7 +408,9 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             return "Light", {}, [], "Consolas", 11
 
-        theme = "Light"
+        theme = settings.get("theme", "Fire")
+        if not isinstance(theme, str) or theme not in self.THEMES:
+            theme = "Fire"
 
         custom_colors: dict[str, dict[str, str]] = {}
 
@@ -484,6 +494,8 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
     def _save_settings(self) -> bool:
 
         settings = {
+
+            "theme": self.theme_var.get(),
 
             "custom_colors": self.custom_theme_colors,
 
@@ -1427,7 +1439,9 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         if file_path.exists():
 
-            self._load_file(file_path)
+            if self._save_pending_changes():
+
+                self._load_file(file_path)
 
         else:
 
@@ -1646,7 +1660,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self._autosave_after_id = None
 
-        if self.dirty and (self.current_file is not None or self.project_folder is not None):
+        if self.dirty and self.current_file is not None:
 
             self.save_file()
 
@@ -1976,11 +1990,11 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             "Welcome.TButton",
 
-            background="#286be8",
+            background=palette["accent"],
 
-            foreground="#ffffff",
+            foreground=palette["accent_foreground"],
 
-            bordercolor="#286be8",
+            bordercolor=palette["accent"],
 
             padding=(16, 9),
 
@@ -1992,9 +2006,15 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             "Welcome.TButton",
 
-            background=[("pressed", "#174caf"), ("active", "#174caf")],
+            background=[
+                ("pressed", palette["accent_hover"]),
+                ("active", palette["accent_hover"]),
+            ],
 
-            foreground=[("pressed", "#ffffff"), ("active", "#ffffff")],
+            foreground=[
+                ("pressed", palette["accent_foreground"]),
+                ("active", palette["accent_foreground"]),
+            ],
 
         )
 
@@ -2044,6 +2064,8 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
             highlightbackground=palette["border"],
             highlightcolor=palette["accent"],
         )
+        self.welcome.configure(background=palette["background"])
+        self._draw_welcome()
         self.line_numbers.configure(background=palette["panel"])
         self.ai_chat.configure(
             background=palette["background"],
@@ -2091,11 +2113,11 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         self._update_current_line()
         self._redraw_line_numbers()
 
-    def _draw_welcome(self, event: tk.Event) -> None:
+    def _draw_welcome(self, event: tk.Event | None = None) -> None:
 
-        width = event.width
+        width = event.width if event is not None else self.welcome.winfo_width()
 
-        height = event.height
+        height = event.height if event is not None else self.welcome.winfo_height()
 
         if width <= 1 or height <= 1:
 
@@ -2103,44 +2125,26 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.welcome.delete("welcome_background", "welcome_content")
 
-        top_color = (255, 255, 255)
-
-        middle_color = (232, 250, 255)
-
-        bottom_color = (91, 139, 255)
+        palette = self._active_palette
+        top_color = tuple(
+            int(palette["background"][index:index + 2], 16)
+            for index in (1, 3, 5)
+        )
+        middle_color = tuple(
+            int(palette["surface"][index:index + 2], 16)
+            for index in (1, 3, 5)
+        )
+        bottom_color = tuple(
+            int(palette["panel"][index:index + 2], 16)
+            for index in (1, 3, 5)
+        )
 
         band_height = max(1, height // 120)
 
         for y in range(0, height, band_height):
-
-            progress = y / max(1, height - 1)
-
-            if progress < 0.42:
-
-                start, end = top_color, middle_color
-
-                blend = progress / 0.42
-
-            else:
-
-                start, end = middle_color, bottom_color
-
-                blend = (progress - 0.42) / 0.58
-
-            color = "#" + "".join(
-
-                f"{round(first + (last - first) * blend):02x}"
-
-                for first, last in zip(start, end)
-
-            )
-
             self.welcome.create_rectangle(
-
-                0, y, width, y + band_height, fill=color, outline=color,
-
+                0, y, width, y + band_height, fill="#000000", outline="#000000",
                 tags="welcome_background",
-
             )
 
         self.welcome.create_text(
@@ -2153,7 +2157,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             text=f"Version {self.VERSION}",
 
-            fill="#405a78",
+            fill=palette["muted"],
 
             font=("Segoe UI", 9),
 
@@ -2227,7 +2231,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             text="Welcome to GRAVEL",
 
-            fill="#202124",
+            fill=palette["foreground"],
 
             font=("Segoe UI", 20, "bold"),
 
@@ -2245,7 +2249,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             text="Open a project or file, or create a new file to get started.",
 
-            fill="#405a78",
+            fill=palette["muted"],
 
             font=("Segoe UI", 10),
 
