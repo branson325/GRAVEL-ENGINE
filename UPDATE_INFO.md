@@ -1,4 +1,4 @@
-# GRAVEL 1.0.7 - Smarter Editor, Safer Workflow, More Control
+# FIRE GRAVEL BETA (1.0.7) - Smarter Editor, Safer Workflow, More Control
 
 - Refined the editor layout with improved spacing, contrast, and visual separation.
 - Added active-line highlighting and a theme-aware line-number gutter that emphasizes the cursor line.
