@@ -7,7 +7,9 @@ currently being supported with security updates.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.0.7   | :white_check_mark: |
+| 1.0.8(n)| :white_check_mark: |
+| 1.0.7(n)| :x: |
+| 1.0.7(f)| :white_check_mark: |
 | 1.0.6   | :x: |
 | 1.0.5   | :white_check_mark: |
 | 1.0.4   | :x: |
@@ -15,6 +17,8 @@ currently being supported with security updates.
 | 1.0.2   | :x:                |
 | 1.0.1   | :white_check_mark: |
 | 1.0.0   | :x:                |
+
+(n) = Normal | (f) = Fire
 
 ## Reporting a Vulnerability
 
