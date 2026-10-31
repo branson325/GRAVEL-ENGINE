@@ -15,7 +15,7 @@ from runners import RunnerMixin
 from ui.file_tree import FileTreeMixin
 
 class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
-    VERSION = "1.0.7"
+    VERSION = "1.0.7 BETA"
     SUPPORTED_FILETYPES = (
         ("Supported files", "*.py *.html *.htm *.css *.json *.js *.mjs *.cjs *.javascript *.java *.c *.cc *.cpp *.cxx"),
         ("Python files", "*.py"),
@@ -97,14 +97,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
             "border": "#393c43", "muted": "#a0a5af", "accent": "#0078d4",
             "accent_hover": "#2b88ff", "accent_foreground": "#ffffff",
         },
-        "Fire": {
-            "background": "#4a0000", "foreground": "#ffebeb", "selection": "#ff4d4d",
-            "keyword": "#ff8080", "constant": "#ffc0c0", "string": "#ffa080",
-            "comment": "#8a5d5d", "number": "#ffda80", "operator": "#ff6060",
-            "panel": "#5a0000", "field": "#2a0000", "surface": "#6a0000",
-            "border": "#8a0000", "muted": "#b38b8b", "accent": "#ff0000",
-            "accent_hover": "#ff4d4d", "accent_foreground": "#ffffff",
-        },
+
         "Forest": {
             "background": "#f1f5ef", "foreground": "#27352a", "selection": "#c9dfc7",
             "keyword": "#7651a6", "constant": "#b64f39", "string": "#28734d",
@@ -129,7 +122,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.root = root
 
-        self.root.title("GRAVEL Code Editor")
+        self.root.title("GRAVEL Code Editor | By Branson Lee")
 
         self.root.geometry("1100x720")
 
@@ -203,7 +196,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         }
 
-        welcome_logo = tk.PhotoImage(file=str(images_folder / "fire_logo.png"))
+        welcome_logo = tk.PhotoImage(file=str(images_folder / "logo.png"))
 
         self.welcome_logo_large = welcome_logo.subsample(3, 3)
 
@@ -408,9 +401,9 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             return "Light", {}, [], "Consolas", 11
 
-        theme = settings.get("theme", "Fire")
+        theme = settings.get("theme", "Light")
         if not isinstance(theme, str) or theme not in self.THEMES:
-            theme = "Fire"
+            theme = "Light"
 
         custom_colors: dict[str, dict[str, str]] = {}
 
@@ -2126,24 +2119,14 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         self.welcome.delete("welcome_background", "welcome_content")
 
         palette = self._active_palette
-        top_color = tuple(
-            int(palette["background"][index:index + 2], 16)
-            for index in (1, 3, 5)
-        )
-        middle_color = tuple(
-            int(palette["surface"][index:index + 2], 16)
-            for index in (1, 3, 5)
-        )
-        bottom_color = tuple(
-            int(palette["panel"][index:index + 2], 16)
-            for index in (1, 3, 5)
-        )
 
         band_height = max(1, height // 120)
 
         for y in range(0, height, band_height):
             self.welcome.create_rectangle(
-                0, y, width, y + band_height, fill="#000000", outline="#000000",
+                0, y, width, y + band_height,
+                fill=palette["background"],
+                outline=palette["background"],
                 tags="welcome_background",
             )
 
@@ -2229,7 +2212,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             title_y + title_height // 2,
 
-            text="Welcome to GRAVEL",
+            text="Welcome to GRAVEL BETA",
 
             fill=palette["foreground"],
 
