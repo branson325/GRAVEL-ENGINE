@@ -5,9 +5,23 @@ import re
 import threading
 import tkinter as tk
 import tkinter.font as tkfont
+from tkinter import ttk
 import urllib.request
 
 class AIAssistantMixin:
+    AI_LANGUAGES = {
+        ".py": ("Python", "python"),
+        ".html": ("HTML", "html"),
+        ".htm": ("HTML", "html"),
+        ".css": ("CSS", "css"),
+        ".json": ("JSON", "json"),
+        ".js": ("JavaScript", "javascript"),
+        ".mjs": ("JavaScript", "javascript"),
+        ".cjs": ("JavaScript", "javascript"),
+        ".javascript": ("JavaScript", "javascript"),
+        ".java": ("Java", "java"),
+    }
+
     def _toggle_ai_panel(self) -> None:
 
         if self.ai_panel_visible:
@@ -183,9 +197,7 @@ class AIAssistantMixin:
         card = tk.Frame(
             self.ai_chat,
             background=card_background,
-            highlightbackground=(
-                self.AI_RESPONSE_RED if is_assistant else palette["border"]
-            ),
+            highlightbackground=palette["accent"] if is_assistant else palette["border"],
             highlightthickness=2 if is_assistant else 1,
         )
         card.pack_propagate(False)
@@ -196,9 +208,7 @@ class AIAssistantMixin:
             card,
             text=speaker.upper(),
             background=card_background,
-            foreground=(
-                self.AI_RESPONSE_RED if is_assistant else palette["muted"]
-            ),
+            foreground=palette["accent"] if is_assistant else palette["muted"],
             font=("Segoe UI", 9, "bold"),
             anchor=tk.W,
             padx=10,
@@ -299,14 +309,13 @@ class AIAssistantMixin:
 
         self.ai_history.append(("You", message))
 
+        extension = self.current_file.suffix.lower() if self.current_file else ".py"
+        language, code_fence = self.AI_LANGUAGES.get(extension, ("Text", "text"))
         prompt = (
-
             f"{self.ai_system_prompt_var.get()}\n"
-
             f"Recent conversation:\n{history or '(none)'}\n\n"
-
-            f"Open file code:\n```python\n{code}\n```\n\nUser: {message}"
-
+            f"Open file code:\n```{code_fence}\n{code}\n```\n\n"
+            f"File language: {language}\n\nUser: {message}"
         )
 
         self._request_ai(prompt, "chat")
@@ -353,39 +362,13 @@ class AIAssistantMixin:
 
         extension = self.current_file.suffix.lower() if self.current_file else ".py"
 
-        language = {
-
-            ".py": "Python",
-
-            ".html": "HTML",
-
-            ".htm": "HTML",
-
-            ".css": "CSS",
-
-            ".json": "JSON",
-
-            ".js": "JavaScript",
-
-            ".mjs": "JavaScript",
-
-            ".cjs": "JavaScript",
-
-            ".javascript": "JavaScript",
-
-            ".java": "Java",
-
-        }.get(extension)
-
-        if language is None:
-
+        language_info = self.AI_LANGUAGES.get(extension)
+        if language_info is None:
             self.pending_script_source = None
-
             self.pending_script_path = None
-
             self.ai_status.set(f"AI file editing is not supported for {extension or 'this file'}.")
-
             return
+        language, code_fence = language_info
 
         prompt = (
 
@@ -393,13 +376,13 @@ class AIAssistantMixin:
 
             f"Edit the user's complete {language} file. Return a full replacement for the entire file "
 
-            f"in exactly one ```{language.lower()} code block. Preserve unrelated behavior. "
+            f"in exactly one ```{code_fence} code block. Preserve unrelated behavior. "
 
             "If the request is ambiguous, ask a question instead of returning code.\n\n"
 
             f"Recent conversation:\n{recent_history or '(none)'}\n\n"
 
-            f"Current file:\n```{language.lower()}\n{source}\n```\n\n"
+            f"Current file:\n```{code_fence}\n{source}\n```\n\n"
 
             f"Requested change: {instruction}"
 
@@ -451,9 +434,12 @@ class AIAssistantMixin:
 
             self.root.after_cancel(self._autosave_after_id)
 
-        self._autosave_after_id = self.root.after(500, self._autosave)
-
-        self.status.set("AI edit applied; autosaving script...")
+        if self.current_file is None:
+            self._autosave_after_id = None
+            self.status.set("AI edit applied; save to choose a file location.")
+        else:
+            self._autosave_after_id = self.root.after(500, self._autosave)
+            self.status.set("AI edit applied; autosaving script...")
 
         self.ai_status.set("AI edit applied to the editor. Undo with Ctrl+Z if needed.")
 
@@ -723,28 +709,36 @@ class AIAssistantMixin:
 
         if action == "edit":
 
-            match = re.search(
-
-                r"```[^\r\n]*\r?\n(.*?)```", answer, re.DOTALL
-
+            extension = (
+                self.pending_script_path.suffix.lower()
+                if self.pending_script_path
+                else ".py"
             )
-
-            replacement = match.group(1) if match else ""
-
+            language_info = self.AI_LANGUAGES.get(extension)
+            code_fence = language_info[1] if language_info else ""
+            code_blocks = list(
+                re.finditer(r"```([^\r\n`]*)\r?\n(.*?)```", answer, re.DOTALL)
+            )
+            matching_blocks = [
+                block
+                for block in code_blocks
+                if block.group(1).strip().lower() == code_fence
+            ]
+            replacement = matching_blocks[0].group(2) if len(matching_blocks) == 1 else ""
             if not replacement.strip():
-
                 self.pending_script_edit = None
-
                 self.pending_script_source = None
-
                 self.pending_script_path = None
-
-                self.ai_status.set("The AI responded without code; no changes were made.")
-
-
+                self.ai_status.set(
+                    "The AI response must contain exactly one full-file "
+                    "code block in the expected language; no changes were made."
+                )
+                self._append_ai_message(
+                    "Assistant",
+                    "I couldn't apply that response. It must contain exactly one "
+                    "full-file code block using the file's expected language.",
+                )
                 return
-
-            extension = self.pending_script_path.suffix.lower() if self.pending_script_path else ".py"
 
             try:
 
@@ -862,9 +856,9 @@ class AIAssistantMixin:
 
             self.ai_system_prompt_var.set(text.get("1.0", "end-1c").strip())
 
-            self._save_settings()
+            if self._save_settings():
 
-            dialog.destroy()
+                dialog.destroy()
 
         ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(
 
