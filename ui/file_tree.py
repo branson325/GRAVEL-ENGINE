@@ -19,7 +19,7 @@ class FileTreeMixin:
 
             return True
 
-        if self.current_file is None and self.project_folder is None:
+        if self.current_file is None:
 
             should_save = messagebox.askyesnocancel(
 
@@ -148,17 +148,11 @@ class FileTreeMixin:
         )
 
         style.configure(
-
             "Picker.Treeview.Heading",
-
             background=palette["surface"],
-
             foreground=palette["foreground"],
-
             font=("Consolas", 9, "bold"),
-
             relief=tk.RAISED,
-
         )
 
         style.map(
@@ -168,16 +162,64 @@ class FileTreeMixin:
             background=[("active", palette["accent"])],
 
             foreground=[("active", palette["accent_foreground"])],
-
         )
 
-        style.configure("Picker.TButton", font=("Consolas", 9, "bold"), padding=(8, 5))
+        style.configure("Picker.TFrame", background=palette["background"])
+        style.configure(
+            "Picker.TLabel",
+            background=palette["background"],
+            foreground=palette["foreground"],
+        )
+        style.configure(
+            "Picker.TEntry",
+            fieldbackground=palette["field"],
+            foreground=palette["foreground"],
+            insertcolor=palette["foreground"],
+            bordercolor=palette["border"],
+        )
+        style.configure(
+            "Picker.TCombobox",
+            fieldbackground=palette["field"],
+            background=palette["surface"],
+            foreground=palette["foreground"],
+            arrowcolor=palette["foreground"],
+            bordercolor=palette["border"],
+        )
+        style.configure(
+            "Picker.Vertical.TScrollbar",
+            background=palette["surface"],
+            troughcolor=palette["background"],
+            bordercolor=palette["background"],
+            arrowcolor=palette["foreground"],
+        )
+        style.map(
+            "Picker.Vertical.TScrollbar",
+            background=[("active", palette["accent"])],
+        )
+        style.configure(
+            "Picker.TButton",
+            background=palette["surface"],
+            foreground=palette["foreground"],
+            bordercolor=palette["border"],
+            font=("Consolas", 9, "bold"),
+            padding=(8, 5),
+        )
+        style.map(
+            "Picker.TButton",
+            background=[
+                ("pressed", palette["accent_hover"]),
+                ("active", palette["accent_hover"]),
+            ],
+            foreground=[
+                ("pressed", palette["accent_foreground"]),
+                ("active", palette["accent_foreground"]),
+            ],
+        )
 
-        outer = ttk.Frame(dialog, padding=8)
-
+        outer = ttk.Frame(dialog, padding=8, style="Picker.TFrame")
         outer.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-        toolbar = ttk.Frame(outer)
+        toolbar = ttk.Frame(outer, style="Picker.TFrame")
 
         toolbar.pack(fill=tk.X, pady=(0, 8))
 
@@ -211,33 +253,45 @@ class FileTreeMixin:
 
         ).pack(side=tk.LEFT, padx=4)
 
-        ttk.Label(toolbar, text="LOCATION").pack(side=tk.LEFT, padx=(12, 6))
+        ttk.Label(toolbar, text="LOCATION", style="Picker.TLabel").pack(
+            side=tk.LEFT, padx=(12, 6)
+        )
 
         location_var = tk.StringVar(value=str(current_dir))
 
-        location_entry = ttk.Entry(toolbar, textvariable=location_var)
+        location_entry = ttk.Entry(
+            toolbar, textvariable=location_var, style="Picker.TEntry"
+        )
 
         location_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
 
-        ttk.Label(toolbar, text="SEARCH").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(toolbar, text="SEARCH", style="Picker.TLabel").pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
 
         search_var = tk.StringVar()
 
-        search_entry = ttk.Entry(toolbar, textvariable=search_var, width=20)
+        search_entry = ttk.Entry(
+            toolbar, textvariable=search_var, width=20, style="Picker.TEntry"
+        )
 
         search_entry.pack(side=tk.LEFT)
 
-        body = ttk.Frame(outer)
+        body = ttk.Frame(outer, style="Picker.TFrame")
 
         body.pack(fill=tk.BOTH, expand=True)
 
-        sidebar = ttk.Frame(body, padding=(4, 4), width=165)
+        sidebar = ttk.Frame(
+            body, padding=(4, 4), width=165, style="Picker.TFrame"
+        )
 
         sidebar.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
 
         sidebar.pack_propagate(False)
 
-        ttk.Label(sidebar, text="QUICK ACCESS").pack(anchor=tk.W, padx=6, pady=(4, 8))
+        ttk.Label(
+            sidebar, text="QUICK ACCESS", style="Picker.TLabel"
+        ).pack(anchor=tk.W, padx=6, pady=(4, 8))
 
         desktop = self._desktop_path()
 
@@ -276,16 +330,13 @@ class FileTreeMixin:
             sidebar,
 
             text="GRAVEL\nPIXEL PICKER",
-
             justify=tk.LEFT,
-
             foreground=palette["muted"],
-
             font=("Consolas", 9, "bold"),
-
+            style="Picker.TLabel",
         ).pack(anchor=tk.W, padx=6)
 
-        content = ttk.Frame(body)
+        content = ttk.Frame(body, style="Picker.TFrame")
 
         content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -293,7 +344,9 @@ class FileTreeMixin:
 
         content.columnconfigure(0, weight=1)
 
-        ttk.Label(content, text="FILES", padding=(8, 6)).grid(
+        ttk.Label(
+            content, text="FILES", padding=(8, 6), style="Picker.TLabel"
+        ).grid(
 
             row=0, column=0, sticky="ew"
 
@@ -328,8 +381,10 @@ class FileTreeMixin:
         listing.grid(row=1, column=0, sticky="nsew")
 
         listing_scroll = ttk.Scrollbar(
-
-            content, orient=tk.VERTICAL, command=listing.yview
+            content,
+            orient=tk.VERTICAL,
+            command=listing.yview,
+            style="Picker.Vertical.TScrollbar",
 
         )
 
@@ -343,11 +398,13 @@ class FileTreeMixin:
 
         status_var = tk.StringVar()
 
-        ttk.Label(outer, textvariable=status_var, anchor=tk.W, padding=(6, 5)).pack(
-
-            fill=tk.X
-
-        )
+        ttk.Label(
+            outer,
+            textvariable=status_var,
+            anchor=tk.W,
+            padding=(6, 5),
+            style="Picker.TLabel",
+        ).pack(fill=tk.X)
 
         filter_var = tk.StringVar(value=self.SUPPORTED_FILETYPES[0][0])
 
@@ -368,10 +425,9 @@ class FileTreeMixin:
                 textvariable=filter_var,
 
                 values=tuple(filter_patterns),
-
                 state="readonly",
-
                 width=20,
+                style="Picker.TCombobox",
 
             )
 
@@ -381,13 +437,16 @@ class FileTreeMixin:
 
         if mode == "save":
 
-            filename_row = ttk.Frame(outer)
+            filename_row = ttk.Frame(outer, style="Picker.TFrame")
 
             filename_row.pack(fill=tk.X, pady=(5, 0))
 
-            ttk.Label(filename_row, text="File name:").pack(side=tk.LEFT, padx=(0, 8))
-
-            filename_entry = ttk.Entry(filename_row, textvariable=filename_var)
+            ttk.Label(
+                filename_row, text="File name:", style="Picker.TLabel"
+            ).pack(side=tk.LEFT, padx=(0, 8))
+            filename_entry = ttk.Entry(
+                filename_row, textvariable=filename_var, style="Picker.TEntry"
+            )
 
             filename_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
@@ -635,7 +694,7 @@ class FileTreeMixin:
 
         refresh_listing(current_dir)
 
-        button_row = ttk.Frame(outer)
+        button_row = ttk.Frame(outer, style="Picker.TFrame")
 
         button_row.pack(fill=tk.X, pady=(8, 0))
 
@@ -1318,60 +1377,7 @@ class FileTreeMixin:
     def save_file(self) -> bool:
 
         if self.current_file is None:
-
-            if self.project_folder is None:
-
-                messagebox.showinfo(
-
-                    "Select a Folder First",
-
-                    "Select a project folder before saving a new file.",
-
-                    parent=self.root,
-
-                )
-
-                return False
-
-            for suffix in range(10000):
-
-                name = "untitled.py" if suffix == 0 else f"untitled{suffix}.py"
-
-                path = self.project_folder / name
-
-                try:
-
-                    with path.open("x", encoding="utf-8"):
-
-                        pass
-
-                except FileExistsError:
-
-                    continue
-
-                except OSError as error:
-
-                    messagebox.showerror("Could Not Save File", str(error), parent=self.root)
-
-                    return False
-
-                self.current_file = path
-
-                break
-
-            else:
-
-                messagebox.showerror(
-
-                    "Could Not Save File",
-
-                    "Could not find an available untitled file name.",
-
-                    parent=self.root,
-
-                )
-
-                return False
+            return self.save_file_as()
 
         return self._write_file(self.current_file)
 
@@ -1391,9 +1397,14 @@ class FileTreeMixin:
 
             return False
 
-        self.current_file = Path(filename)
-
-        return self._write_file(self.current_file)
+        previous_file = self.current_file
+        target_file = Path(filename)
+        self.current_file = target_file
+        if self._write_file(target_file):
+            return True
+        self.current_file = previous_file
+        self._set_title()
+        return False
 
     def _write_file(self, path: Path) -> bool:
 
