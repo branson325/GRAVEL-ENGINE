@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import tkinter as tk
 import tkinter.font as tkfont
+import webbrowser
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 
@@ -15,7 +16,7 @@ from runners import RunnerMixin
 from ui.file_tree import FileTreeMixin
 
 class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
-    VERSION = "1.0.7 BETA"
+    VERSION = "1.0.8 BETA"
     SUPPORTED_FILETYPES = (
         ("Supported files", "*.py *.html *.htm *.css *.json *.js *.mjs *.cjs *.javascript *.java *.c *.cc *.cpp *.cxx"),
         ("Python files", "*.py"),
@@ -97,7 +98,14 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
             "border": "#393c43", "muted": "#a0a5af", "accent": "#0078d4",
             "accent_hover": "#2b88ff", "accent_foreground": "#ffffff",
         },
-
+        "Signal": {
+            "background": "#0b1017", "foreground": "#dce7f2", "selection": "#123846",
+            "keyword": "#c792ea", "constant": "#ff8a7a", "string": "#a6e3a1",
+            "comment": "#74859a", "number": "#f9c784", "operator": "#75d7ec",
+            "panel": "#111a24", "field": "#0d141d", "surface": "#182432",
+            "border": "#283849", "muted": "#9aabba", "accent": "#26d7f2",
+            "accent_hover": "#08b8d6", "accent_foreground": "#07131a",
+        },
         "Forest": {
             "background": "#f1f5ef", "foreground": "#27352a", "selection": "#c9dfc7",
             "keyword": "#7651a6", "constant": "#b64f39", "string": "#28734d",
@@ -108,7 +116,6 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         },
     }
     SYNTAX_TAGS = ("keyword", "constant", "string", "comment", "number", "operator")
-    AI_RESPONSE_RED = "#c9363e"
     CUSTOMIZABLE_COLORS = (
         ("background", "Background"),
         ("keyword", "Keyword"),
@@ -122,11 +129,13 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.root = root
 
-        self.root.title("GRAVEL Code Editor | By Branson Lee")
+        self.root.title(f"GRAVEL {self.VERSION} | By Branson Lee")
 
         self.root.geometry("1100x720")
 
         self.root.minsize(720, 480)
+
+        self.project_explorer_visible = tk.BooleanVar(value=True)
 
         self.current_file: Path | None = None
 
@@ -176,7 +185,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.tab_size_var = tk.IntVar(value=4)
 
-        self.ai_apply_edits_var = tk.BooleanVar(value=True)
+        self.ai_apply_edits_var = tk.BooleanVar(value=False)
         self._active_palette = {
             **self.THEMES[initial_theme],
             **self.custom_theme_colors.get(initial_theme, {}),
@@ -201,6 +210,19 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         self.welcome_logo_large = welcome_logo.subsample(3, 3)
 
         self.welcome_logo_small = welcome_logo.subsample(4, 4)
+        icon_16_scale = max(
+            1, (max(welcome_logo.width(), welcome_logo.height()) + 15) // 16
+        )
+        icon_32_scale = max(
+            1, (max(welcome_logo.width(), welcome_logo.height()) + 31) // 32
+        )
+        self.window_icon_16 = welcome_logo.subsample(icon_16_scale, icon_16_scale)
+        self.window_icon_32 = welcome_logo.subsample(icon_32_scale, icon_32_scale)
+        self.document_logo_image = self.window_icon_16
+        self.root.iconphoto(True, self.window_icon_16, self.window_icon_32)
+        profile_image = tk.PhotoImage(file=str(images_folder / "profile.png"))
+        profile_scale = max(1, (max(profile_image.width(), profile_image.height()) + 23) // 24)
+        self.creator_profile_image = profile_image.subsample(profile_scale, profile_scale)
 
         self.ai_model_var = tk.StringVar(value="gemma4:cloud")
 
@@ -235,7 +257,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         self.root.bind_all("<Control-s>", self._save_shortcut)
 
         self.root.bind_all("<Control-n>", self._new_file_shortcut)
-
+        self.root.bind_all("<Control-g>", self._go_to_line_shortcut)
         self.root.bind_all("<F5>", self._run_shortcut)
 
         self.root.after(60, self._read_process_output)
@@ -274,6 +296,54 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.menu.add_cascade(label="File", menu=file_menu)
 
+        edit_menu = tk.Menu(self.menu, tearoff=False)
+        edit_menu.add_command(
+            label="Undo", accelerator="Ctrl+Z",
+            command=lambda: self._editor_event("<<Undo>>"),
+        )
+        edit_menu.add_command(
+            label="Redo", accelerator="Ctrl+Y",
+            command=lambda: self._editor_event("<<Redo>>"),
+        )
+        edit_menu.add_separator()
+        edit_menu.add_command(
+            label="Cut", accelerator="Ctrl+X",
+            command=lambda: self._editor_event("<<Cut>>"),
+        )
+        edit_menu.add_command(
+            label="Copy", accelerator="Ctrl+C",
+            command=lambda: self._editor_event("<<Copy>>"),
+        )
+        edit_menu.add_command(
+            label="Paste", accelerator="Ctrl+V",
+            command=lambda: self._editor_event("<<Paste>>"),
+        )
+        edit_menu.add_command(label="Select All", command=self._select_all)
+        self.menu.add_cascade(label="Edit", menu=edit_menu)
+
+        view_menu = tk.Menu(self.menu, tearoff=False)
+        view_menu.add_checkbutton(
+            label="Project Explorer",
+            variable=self.project_explorer_visible,
+            command=self._toggle_project_explorer,
+        )
+        view_menu.add_separator()
+        theme_menu = self._create_theme_menu(view_menu)
+        view_menu.add_cascade(label="Theme", menu=theme_menu)
+        self.menu.add_cascade(label="View", menu=view_menu)
+
+        go_menu = tk.Menu(self.menu, tearoff=False)
+        go_menu.add_command(
+            label="Go to Line...", accelerator="Ctrl+G", command=self._go_to_line
+        )
+        go_menu.add_command(
+            label="Go to File Start", command=lambda: self._go_to_editor_index("1.0")
+        )
+        go_menu.add_command(
+            label="Go to File End", command=lambda: self._go_to_editor_index("end-1c")
+        )
+        self.menu.add_cascade(label="Go", menu=go_menu)
+
         run_menu = tk.Menu(self.menu, tearoff=False)
 
         run_menu.add_command(label="Run Current File", accelerator="F5", command=self.run_file)
@@ -281,14 +351,6 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         run_menu.add_command(label="Stop", command=self.stop_file)
 
         self.menu.add_cascade(label="Run", menu=run_menu)
-
-        view_menu = tk.Menu(self.menu, tearoff=False)
-
-        theme_menu = self._create_theme_menu(view_menu)
-
-        view_menu.add_cascade(label="Theme", menu=theme_menu)
-
-        self.menu.add_cascade(label="View", menu=view_menu)
 
         settings_menu = tk.Menu(self.menu, tearoff=False)
 
@@ -331,6 +393,10 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.menu.add_cascade(label="Settings", menu=settings_menu)
 
+        self.app_menus = [
+            file_menu, self.recent_menu, edit_menu, view_menu, theme_menu,
+            go_menu, run_menu, settings_menu, tab_size_menu,
+        ]
         self.root.config(menu=self.menu)
 
     def _create_theme_menu(self, parent: tk.Menu) -> tk.Menu:
@@ -352,6 +418,48 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
             )
 
         return theme_menu
+
+    def _toggle_project_explorer(self) -> None:
+        if self.project_explorer_visible.get():
+            self.main.insert(0, self.explorer, weight=1)
+        else:
+            self.main.forget(self.explorer)
+
+    def _open_creator_email(self, _event: tk.Event | None = None) -> str:
+        if not webbrowser.open("mailto:bransonl474@gmail.com"):
+            self.status.set("Could not open a mail application for bransonl474@gmail.com.")
+        return "break"
+
+    def _editor_event(self, event_name: str) -> None:
+        self.editor.focus_set()
+        self.editor.event_generate(event_name)
+
+    def _select_all(self) -> None:
+        self.editor.tag_add(tk.SEL, "1.0", "end-1c")
+        self.editor.mark_set(tk.INSERT, "end-1c")
+        self.editor.focus_set()
+
+    def _go_to_editor_index(self, index: str) -> None:
+        self.editor.mark_set(tk.INSERT, index)
+        self.editor.see(tk.INSERT)
+        self.editor.focus_set()
+        self._update_current_line()
+
+    def _go_to_line(self) -> None:
+        line_count = int(self.editor.index("end-1c").split(".")[0])
+        line = simpledialog.askinteger(
+            "Go to Line",
+            f"Enter a line number (1–{line_count}):",
+            parent=self.root,
+            minvalue=1,
+            maxvalue=line_count,
+        )
+        if line is not None:
+            self._go_to_editor_index(f"{line}.0")
+
+    def _go_to_line_shortcut(self, _event: tk.Event) -> str:
+        self._go_to_line()
+        return "break"
 
     def _load_settings(
         self,
@@ -858,7 +966,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.workspace = ttk.Frame(self.root)
 
-        toolbar = ttk.Frame(self.workspace, padding=(8, 6))
+        toolbar = ttk.Frame(self.workspace, padding=(8, 6), style="Toolbar.TFrame")
 
         toolbar.pack(fill=tk.X)
 
@@ -884,6 +992,29 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.ai_toggle_button.pack(side=tk.LEFT, padx=5)
 
+        creator_credit = ttk.Frame(toolbar, style="Toolbar.TFrame")
+        creator_credit.pack(side=tk.LEFT, padx=(8, 10))
+        ttk.Label(
+            creator_credit,
+            image=self.creator_profile_image,
+            style="ToolbarLogo.TLabel",
+        ).pack(side=tk.LEFT, padx=(0, 6))
+        creator_text = ttk.Frame(creator_credit, style="Toolbar.TFrame")
+        creator_text.pack(side=tk.LEFT)
+        ttk.Label(
+            creator_text,
+            text="Made by QuantumNight101 | Branson325",
+            style="ToolbarFile.TLabel",
+        ).pack(anchor=tk.W)
+        contact_label = ttk.Label(
+            creator_text,
+            text="bransonl474@gmail.com",
+            style="CreatorContact.TLabel",
+            cursor="hand2",
+        )
+        contact_label.pack(anchor=tk.W)
+        contact_label.bind("<Button-1>", self._open_creator_email)
+
         self.fix_run_button = ttk.Button(
             toolbar,
             text="Fix with GRAVEL AI",
@@ -893,19 +1024,17 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         self.fix_run_button.pack(side=tk.LEFT, padx=5)
         self.fix_run_button.pack_forget()
 
-        ttk.Label(toolbar, text=f"Version {self.VERSION}").pack(
-
-            side=tk.RIGHT, padx=(8, 4)
-
+        self.toolbar_file_label = ttk.Label(
+            toolbar,
+            text="Untitled",
+            anchor=tk.E,
+            style="ToolbarFile.TLabel",
         )
-
-        self.path_label = ttk.Label(toolbar, text="", anchor=tk.W)
-
-        self.path_label.pack(side=tk.LEFT, padx=12, fill=tk.X, expand=True)
+        self.toolbar_file_label.pack(side=tk.RIGHT, padx=(8, 0))
 
         self.main = ttk.PanedWindow(self.workspace, orient=tk.HORIZONTAL)
 
-        self.main.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        self.main.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
 
         self.explorer = ttk.Frame(self.main, width=240)
 
@@ -913,7 +1042,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         explorer.columnconfigure(0, weight=1)
 
-        ttk.Label(explorer, text="PROJECT", padding=(6, 5)).grid(
+        ttk.Label(explorer, text="PROJECT", padding=(6, 5), style="PanelTitle.TLabel").grid(
 
             row=0, column=0, sticky=tk.W
 
@@ -973,7 +1102,17 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.main.add(work_area, weight=4)
 
-        editor_frame = ttk.Frame(work_area)
+        editor_surface = ttk.Frame(work_area, style="EditorSurface.TFrame")
+        ttk.Separator(editor_surface, orient=tk.HORIZONTAL).pack(fill=tk.X)
+        self.document_breadcrumb = tk.StringVar(value="No folder open")
+        ttk.Label(
+            editor_surface,
+            textvariable=self.document_breadcrumb,
+            padding=(12, 5),
+            style="Breadcrumb.TLabel",
+        ).pack(fill=tk.X)
+
+        editor_frame = ttk.Frame(editor_surface)
 
         editor_frame.rowconfigure(0, weight=1)
 
@@ -1038,7 +1177,8 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         self.editor.bind("<<Modified>>", self._editor_modified)
 
-        work_area.add(editor_frame, weight=3)
+        editor_frame.pack(fill=tk.BOTH, expand=True)
+        work_area.add(editor_surface, weight=3)
 
         output_frame = ttk.Frame(work_area)
 
@@ -1046,7 +1186,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         output_frame.columnconfigure(0, weight=1)
 
-        ttk.Label(output_frame, text="TERMINAL", padding=(6, 5)).grid(
+        ttk.Label(output_frame, text="TERMINAL", padding=(6, 5), style="PanelTitle.TLabel").grid(
 
             row=0, column=0, sticky=tk.W
 
@@ -1110,7 +1250,9 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         work_area.add(output_frame, weight=1)
 
-        self.ai_panel = ttk.Frame(self.main, width=340, padding=8)
+        self.ai_panel = ttk.Frame(
+            self.main, width=340, padding=8, style="Explorer.TFrame"
+        )
 
         self.ai_panel.columnconfigure(0, weight=1)
 
@@ -1122,7 +1264,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         ai_header.columnconfigure(0, weight=1)
 
-        ttk.Label(ai_header, text="AI ASSISTANT").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(ai_header, text="AI ASSISTANT", style="PanelTitle.TLabel").grid(row=0, column=0, sticky=tk.W)
 
         ttk.Button(ai_header, text="Close", command=self._toggle_ai_panel).grid(row=0, column=1)
 
@@ -1300,7 +1442,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             ai_prompt_row,
 
-            text="Apply code changes to the open file",
+            text="Edit the open file with AI (otherwise chat)",
 
             variable=self.ai_apply_edits_var,
 
@@ -1331,18 +1473,29 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         self.status = tk.StringVar(value="Ready")
 
         self.save_state = tk.StringVar(value="Not saved")
+        self.cursor_position = tk.StringVar(value="Ln 1, Col 1")
 
-        status_bar = ttk.Frame(self.workspace, relief=tk.SUNKEN)
-
+        status_bar = ttk.Frame(self.workspace, style="Status.TFrame")
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        ttk.Frame(
+            status_bar, height=2, style="StatusAccent.TFrame"
+        ).pack(side=tk.TOP, fill=tk.X)
 
-        ttk.Label(status_bar, textvariable=self.status, anchor=tk.W).pack(
+        ttk.Label(status_bar, textvariable=self.status, anchor=tk.W, style="Status.TLabel").pack(
 
             side=tk.LEFT, fill=tk.X, expand=True, padx=4
 
         )
 
-        ttk.Label(status_bar, textvariable=self.save_state, anchor=tk.E, padding=(8, 0)).pack(
+        ttk.Label(
+            status_bar,
+            textvariable=self.cursor_position,
+            anchor=tk.E,
+            padding=(8, 0),
+            style="Status.TLabel",
+        ).pack(side=tk.RIGHT)
+
+        ttk.Label(status_bar, textvariable=self.save_state, anchor=tk.E, padding=(8, 0), style="Status.TLabel").pack(
 
             side=tk.RIGHT
 
@@ -1354,13 +1507,18 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         marker = " *" if self.dirty else ""
 
-        self.root.title(f"{name}{marker} - GRAVEL")
+        self.root.title(f"{name}{marker} - GRAVEL {self.VERSION}")
 
-        self.path_label.config(
-
-            text=str(self.current_file or self.project_folder or "No folder selected")
-
-        )
+        if hasattr(self, "toolbar_file_label"):
+            self.toolbar_file_label.configure(
+                text=f"{name}{'  ●' if self.dirty else ''}"
+            )
+        if hasattr(self, "document_breadcrumb"):
+            self.document_breadcrumb.set(
+                str(self.current_file.parent)
+                if self.current_file
+                else str(self.project_folder or "No folder open")
+            )
 
         if self.dirty and self.current_file is None and self.project_folder is None:
 
@@ -1461,6 +1619,9 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
     def _update_current_line(self, _event: tk.Event | None = None) -> None:
         if not hasattr(self, "editor"):
             return
+        if hasattr(self, "cursor_position"):
+            line, column = self.editor.index(tk.INSERT).split(".")
+            self.cursor_position.set(f"Ln {line}, Col {int(column) + 1}")
         self.editor.tag_remove("current_line", "1.0", tk.END)
         self.editor.tag_add(
             "current_line",
@@ -1944,14 +2105,72 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
         )
 
         style.configure(
-
             "Explorer.TFrame",
-
             background=palette["panel"],
-
         )
 
         self.explorer.configure(style="Explorer.TFrame")
+
+        style.configure(
+            "Toolbar.TFrame",
+            background=palette["panel"],
+        )
+
+        style.configure(
+            "Toolbar.TLabel",
+            background=palette["panel"],
+            foreground=palette["muted"],
+        )
+
+        style.configure(
+            "ToolbarFile.TLabel",
+            background=palette["panel"],
+            foreground=palette["foreground"],
+            font=("Segoe UI", 9, "bold"),
+        )
+
+        style.configure(
+            "CreatorContact.TLabel",
+            background=palette["panel"],
+            foreground=palette["accent"],
+            font=("Segoe UI", 8, "underline"),
+        )
+
+        style.configure(
+            "PanelTitle.TLabel",
+            background=palette["panel"],
+            foreground=palette["accent"],
+            font=("Segoe UI", 9, "bold"),
+        )
+
+        style.configure(
+            "Status.TFrame",
+            background=palette["panel"],
+        )
+
+        style.configure(
+            "Status.TLabel",
+            background=palette["panel"],
+            foreground=palette["muted"],
+            padding=(8, 4),
+        )
+
+        style.configure(
+            "StatusAccent.TFrame",
+            background=palette["accent"],
+        )
+
+        style.configure(
+            "EditorSurface.TFrame",
+            background=palette["background"],
+        )
+
+        style.configure(
+            "Breadcrumb.TLabel",
+            background=palette["background"],
+            foreground=palette["muted"],
+            font=("Segoe UI", 9),
+        )
 
         style.configure(
 
@@ -2011,7 +2230,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
         )
 
-        for menu in (self.menu, self.tree_menu):
+        for menu in (*self.app_menus, self.tree_menu):
 
             menu.configure(
 
@@ -2070,11 +2289,11 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
             card_background = palette["panel"] if is_assistant else palette["surface"]
             card.configure(
                 background=card_background,
-                highlightbackground=self.AI_RESPONSE_RED if is_assistant else palette["border"],
+                highlightbackground=palette["accent"] if is_assistant else palette["border"],
             )
             role_label.configure(
                 background=card_background,
-                foreground=self.AI_RESPONSE_RED if is_assistant else palette["muted"],
+                foreground=palette["accent"] if is_assistant else palette["muted"],
             )
             body_label.configure(
                 background=card_background,
@@ -2138,7 +2357,7 @@ class PythonEditor(AIAssistantMixin, FileTreeMixin, RunnerMixin):
 
             anchor=tk.NE,
 
-            text=f"Version {self.VERSION}",
+            text=f"GRAVEL {self.VERSION}\nWorkspace polish & smoother flow",
 
             fill=palette["muted"],
 
