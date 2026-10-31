@@ -15,12 +15,14 @@ GRAVEL is a small editor built with Python's standard-library **Tkinter** GUI to
 - **Guided start** — choose to open a project folder, open a file, or create a new file from the welcome screen. Empty projects explain how to add files or folders.
 - **Project workspace** — open a folder, browse its files, and create, rename, or delete files and folders from the project tree.
 - **Editor basics** — open and save files, create new files, undo edits, and choose between 2-, 4-, or 8-space tabs.
+- **IDE-style workspace** — a project explorer sidebar, breadcrumb header, and status bar with the current line and column. The GRAVEL logo appears as the window icon in the top-left, and the current file name appears at the top-right; toggle the explorer from **View → Project Explorer**.
+- **Creator credit** — the toolbar shows the creator profile picture and username beside **Run**; click the email address to contact the creator.
 - **Save-state feedback** — unsaved edits are marked in the window title and status bar; untitled files wait for you to choose a save location instead of triggering an autosave prompt, and prompt before being discarded.
-- **Multi-language syntax highlighting and themes** — highlights Python, JavaScript, Java, and C/C++ keywords, strings, comments, numbers, constants, and operators; the editor highlights the active line and emphasizes its line number in the gutter. GRAVEL starts in **Light** mode; choose **Light**, **Dark**, or **Forest** from **View → Theme**. Use **View → Theme → Customize Theme Colors...** to adjust the background, keyword, comment, panel, border, and accent-hover colors with RGB sliders, or choose **Reset Colors to Light** to restore the default Light palette. Custom color choices are saved between launches. Dark mode uses dark surfaces throughout the workspace with red accents.
+- **Multi-language syntax highlighting and themes** — highlights Python, JavaScript, Java, and C/C++ keywords, strings, comments, numbers, constants, and operators; the editor highlights the active line and emphasizes its line number in the gutter. GRAVEL starts in **Light** mode; choose **Light**, **Dark**, **Signal**, or **Forest** from **View → Theme**. Signal is a futuristic charcoal theme with cyan accents. Your selected theme and custom colors are saved between launches. Use **View → Theme → Customize Theme Colors...** to adjust the background, keyword, comment, panel, border, and accent-hover colors with RGB sliders, or choose **Reset Colors to Light** to restore the default Light palette.
 - **Editor customisation** — adjust and persist the editor font family and size from **Settings → Editor Font...**. Line numbers and automatic bracket/quote pairing are available in the editor.
 - **Run and preview** — run supported code or preview web content, with output and errors shown in the built-in terminal and clear success, failure, and stop statuses.
 - **Interactive terminal input** — send input to a running program, then stop it when needed.
-- **Optional AI assistant** — chat about the open file, request a code completion, explain the last run, or ask AI to edit the open file. Responses stream into red-outlined assistant cards, visually separated from your messages. Failed runs provide a **Fix with GRAVEL AI** action that sends captured error output for explanation. AI edits are checked for valid Python or JSON where applicable, can be undone with `Ctrl+Z`, and are autosaved.
+- **Optional AI assistant** — chat about the open file, request a code completion, explain the last run, or ask AI to edit the open file. Responses stream into theme-accented assistant cards, visually separated from your messages. Failed runs provide a **Fix with GRAVEL AI** action that sends captured error output for explanation. AI edits are checked for valid Python or JSON where applicable, can be undone with `Ctrl+Z`, and are autosaved.
 - **Autosave** — changes to a named file are saved after a short pause. Unsaved changes are also saved before switching files or closing the app.
 
 ## 🚀 Run GRAVEL
@@ -86,7 +88,7 @@ The editor works without AI. To use the assistant:
 1. Install [Ollama](https://ollama.com/) and start its local service.
 2. Open a project or file, then click **AI Assistant**.
 3. Select an available model and use **Refresh** to check the model list. If needed, enter a model name and select **Pull Model** to download it.
-4. Enter a prompt and press **Enter** or **Send**. With **Apply code changes to the open file** checked, the prompt asks the model to edit the file; uncheck it to chat without applying edits.
+4. Enter a prompt and press **Enter** or **Send**. GRAVEL starts in chat mode. Select **Edit the open file with AI (otherwise chat)** to request a full-file edit; edits are applied to the editor and can be undone with `Ctrl+Z`.
 
 GRAVEL connects to Ollama at `http://localhost:11434`. The default model name is `gemma4:cloud`; using an Ollama cloud model may send prompts and included code to that model's cloud provider. For local-only processing, choose a model that runs locally and confirm the model's behavior in Ollama.
 
@@ -103,6 +105,7 @@ AI options include:
 | `Ctrl+N` | New file |
 | `Ctrl+O` | Open file |
 | `Ctrl+Shift+O` | Open project folder |
+| `Ctrl+G` | Go to line |
 | `Ctrl+S` | Save |
 | `F5` | Run current file |
 | `Ctrl+Space` | Request AI completion |
